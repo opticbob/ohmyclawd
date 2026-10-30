@@ -51,14 +51,23 @@ set_env() {
 
 cd "$(dirname "$0")"
 
+if ! command -v go >/dev/null 2>&1; then
+  echo "go not found in root's PATH; try: sudo env PATH=\"\$PATH\" $0" >&2
+  exit 1
+fi
+
+# Build before stopping so a failed build leaves the running daemon alone.
+BUILD_DIR=$(mktemp -d)
+trap 'rm -rf "${BUILD_DIR}"' EXIT
+go build -trimpath -ldflags='-s -w' -o "${BUILD_DIR}/ohmyclawd-daemon" .
+
 # Stop before replacing binary (avoids "Text file busy")
 if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
   echo "==> stopping ${SERVICE_NAME}..."
   systemctl stop "${SERVICE_NAME}"
 fi
 
-go build -trimpath -ldflags='-s -w' -o ohmyclawd-daemon .
-install -m 0755 ohmyclawd-daemon /usr/local/bin/ohmyclawd-daemon
+install -m 0755 "${BUILD_DIR}/ohmyclawd-daemon" /usr/local/bin/ohmyclawd-daemon
 
 # Preserve existing env vars on upgrade
 declare -A KEEP=()
