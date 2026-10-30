@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -113,7 +114,7 @@ func TestParseUsageText(t *testing.T) {
 			if err != nil {
 				t.Fatalf("err = %v", err)
 			}
-			if *u != tc.want {
+			if !reflect.DeepEqual(*u, tc.want) {
 				t.Fatalf("usage = %+v\n want %+v", *u, tc.want)
 			}
 			if fmt.Sprint(lims) != fmt.Sprint(tc.lims) {

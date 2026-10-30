@@ -40,20 +40,12 @@ type CLISource struct {
 	Timeout   time.Duration    // 0 -> 45s
 	Now       func() time.Time // injectable for tests; nil -> time.Now
 
-	mu     sync.Mutex
-	found  string  // cached auto-detected binary
-	limits []Limit // per-model rows from the last successful fetch
+	mu    sync.Mutex
+	found string // cached auto-detected binary
 }
 
 func (c *CLISource) Name() string            { return "cli" }
 func (c *CLISource) Interval() time.Duration { return c.Every }
-
-// Limits returns the per-model weekly rows from the last successful fetch.
-func (c *CLISource) Limits() []Limit {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]Limit(nil), c.limits...)
-}
 
 var cliArgs = []string{
 	"-p", "/usage",
@@ -69,13 +61,13 @@ func (c *CLISource) Fetch(ctx context.Context) (*Usage, error) {
 		now = c.Now
 	}
 	u, lims, err := c.fetch(ctx, now)
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if err != nil {
+		c.mu.Lock()
 		c.found = "" // re-detect next time in case the binary moved
+		c.mu.Unlock()
 		return nil, err
 	}
-	c.limits = lims
+	u.Lim = lims
 	return u, nil
 }
 

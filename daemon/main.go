@@ -69,6 +69,7 @@ func main() {
 	defer cancel()
 
 	go sw.Run(ctx)
+	go logKindChanges(ctx, sw, 5*time.Second)
 
 	if *fakeMode {
 		go runFake(ctx, state)
@@ -84,6 +85,7 @@ func main() {
 			Activity:    activity,
 			IdleAfter:   idleAfter,
 		}
+		chain.Metrics = metrics
 		go RunLoop(ctx, chain, state, metrics, cfg)
 		log.Printf("ohmyclawd-daemon listening on %s (sources %s)", listen, strings.Join(sources, ","))
 	}

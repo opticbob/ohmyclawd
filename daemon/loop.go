@@ -96,6 +96,7 @@ func RunLoop(ctx context.Context, c *Chain, s *State, m *Metrics, cfg LoopConfig
 		switch {
 		case err == nil:
 			u.OKTs = cfg.Now().Unix()
+			u.Err = ""
 			s.Store(u)
 			idx = -1
 			sleep(interval)
@@ -103,6 +104,7 @@ func RunLoop(ctx context.Context, c *Chain, s *State, m *Metrics, cfg LoopConfig
 			m.IncFail()
 			if u != nil {
 				u.OKTs = cur.OKTs
+				u.Err = shortErr(err)
 				s.Store(u)
 			}
 			sleep(cfg.RateLimited)
@@ -112,6 +114,7 @@ func RunLoop(ctx context.Context, c *Chain, s *State, m *Metrics, cfg LoopConfig
 			if cur != nil {
 				cur.OK = false
 				cur.Ts = cfg.Now().Unix()
+				cur.Err = shortErr(err)
 				s.Store(cur)
 			}
 			idx++

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"time"
 )
 
 // SessionWatcher reports how many Claude sessions are open and how many are
@@ -85,4 +87,27 @@ func newSessionWatcher(mode, herdrSock string, match, waiting []string) (Session
 		return noopWatcher{}, nil
 	}
 	return nil, fmt.Errorf("OHMYCLAWD_SESSIONS: unknown mode %q (want auto|herdr|tmux|off)", mode)
+}
+
+// logKindChanges logs whenever the watcher answering for sessions changes.
+func logKindChanges(ctx context.Context, w SessionWatcher, every time.Duration) {
+	prev := ""
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		// Check after the first tick so watchers have polled once.
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if k := w.Kind(); k != prev {
+			if prev == "" {
+				log.Printf("session watcher: %s", k)
+			} else {
+				log.Printf("session watcher changed: %s -> %s", prev, k)
+			}
+			prev = k
+		}
+	}
 }

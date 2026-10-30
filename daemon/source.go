@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -42,9 +44,11 @@ func (p *ProbeSource) Fetch(ctx context.Context) (*Usage, error) {
 // Chain tries each Source in order; the first success wins.
 type Chain struct {
 	Sources []Source
+	Metrics *Metrics // optional per-source counters
 
 	mu      sync.Mutex
 	lastErr map[string]error
+	active  string
 }
 
 func NewChain(sources ...Source) *Chain {
@@ -58,11 +62,12 @@ func (c *Chain) Fetch(ctx context.Context) (*Usage, time.Duration, error) {
 	var errs []error
 	for _, s := range c.Sources {
 		u, err := s.Fetch(ctx)
-		c.setErr(s.Name(), err)
+		c.record(s.Name(), err)
 		if err == nil || IsRateLimited(err) {
 			if u != nil {
 				u.Src = s.Name()
 			}
+			c.setActive(s.Name())
 			return u, s.Interval(), err
 		}
 		errs = append(errs, fmt.Errorf("%s: %w", s.Name(), err))
@@ -83,8 +88,34 @@ func (c *Chain) LastErr(name string) error {
 	return c.lastErr[name]
 }
 
-func (c *Chain) setErr(name string, err error) {
+func (c *Chain) record(name string, err error) {
 	c.mu.Lock()
 	c.lastErr[name] = err
 	c.mu.Unlock()
+	if c.Metrics != nil {
+		c.Metrics.SourceFetch(name, err)
+	}
+}
+
+// setActive notes the winning source, logging only when it changes.
+func (c *Chain) setActive(name string) {
+	c.mu.Lock()
+	prev := c.active
+	c.active = name
+	c.mu.Unlock()
+	if prev != name {
+		if prev == "" {
+			log.Printf("usage source: %s", name)
+		} else {
+			log.Printf("usage source changed: %s -> %s", prev, name)
+		}
+	}
+	if c.Metrics != nil {
+		c.Metrics.SetActive(name)
+	}
+}
+
+// shortErr renders err on one line for the /usage "err" field.
+func shortErr(err error) string {
+	return snippet(strings.ReplaceAll(err.Error(), "\n", "; "))
 }

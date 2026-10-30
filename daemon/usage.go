@@ -13,6 +13,8 @@ type Usage struct {
 	CS int    `json:"cs"` // claude sessions (tmux panes)
 	CW int    `json:"cw"` // claude sessions waiting for input
 
-	Src  string `json:"src,omitempty"` // source that produced this data: cli | probe | fake
-	OKTs int64  `json:"-"`             // unix seconds of last successful fetch (internal)
+	Src  string  `json:"src,omitempty"` // source that produced this data: cli | probe | fake
+	Err  string  `json:"err,omitempty"` // last error, when the latest attempt failed
+	Lim  []Limit `json:"lim,omitempty"` // per-model weekly limits (cli source only)
+	OKTs int64   `json:"-"`             // unix seconds of last successful fetch (internal)
 }
