@@ -29,18 +29,24 @@ func main() {
 		ClaudeBin:     getenv("OHMYCLAWD_CLAUDE_BIN", ""),
 		ClaudeConfig:  getenv("OHMYCLAWD_CLAUDE_CONFIG_DIR", ""),
 	}
+	sessionsMode := strings.ToLower(getenv("OHMYCLAWD_SESSIONS", "auto"))
+	agentMatch := splitList(getenv("OHMYCLAWD_AGENT_MATCH", "claude,kiro"))
+	herdrWaiting := splitList(getenv("OHMYCLAWD_HERDR_WAITING", "blocked,done"))
 	fakeMode := flag.Bool("fake", false, "serve a scripted Usage curve, no Anthropic calls")
 	flag.Parse()
 
 	state := NewState()
 	metrics := NewMetrics()
-	tmux := NewTmuxWatcher()
-	handler := NewHandler(state, metrics, tmux, time.Now, token)
+	sw, err := newSessionWatcher(sessionsMode, defaultHerdrSock(), agentMatch, herdrWaiting)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	handler := NewHandler(state, metrics, sw, time.Now, token)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go tmux.Run(ctx)
+	go sw.Run(ctx)
 
 	if *fakeMode {
 		go runFake(ctx, state)

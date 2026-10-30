@@ -18,6 +18,7 @@ type TmuxWatcher struct {
 
 	sessions atomic.Int32
 	waiting  atomic.Int32
+	lastOK   atomic.Int64 // unix nanos of last successful list-panes
 }
 
 func NewTmuxWatcher() *TmuxWatcher {
@@ -29,6 +30,19 @@ func NewTmuxWatcher() *TmuxWatcher {
 
 func (tw *TmuxWatcher) Sessions() int { return int(tw.sessions.Load()) }
 func (tw *TmuxWatcher) Waiting() int  { return int(tw.waiting.Load()) }
+
+// Healthy reports whether tmux answered list-panes within the last three intervals.
+func (tw *TmuxWatcher) Healthy() bool {
+	last := tw.lastOK.Load()
+	return last != 0 && time.Since(time.Unix(0, last)) < 3*tw.Interval
+}
+
+func (tw *TmuxWatcher) Kind() string {
+	if tw.Healthy() {
+		return "tmux"
+	}
+	return "none"
+}
 
 func (tw *TmuxWatcher) Run(ctx context.Context) {
 	type paneState struct {
@@ -44,10 +58,13 @@ func (tw *TmuxWatcher) Run(ctx context.Context) {
 		case <-time.After(tw.Interval):
 		}
 
-		panes := tw.findClaudePanes()
+		panes, err := tw.findClaudePanes()
 		tw.sessions.Store(int32(len(panes)))
 
 		now := time.Now()
+		if err == nil {
+			tw.lastOK.Store(now.UnixNano())
+		}
 		waiting := 0
 
 		for _, pane := range panes {
@@ -82,10 +99,10 @@ func (tw *TmuxWatcher) Run(ctx context.Context) {
 	}
 }
 
-func (tw *TmuxWatcher) findClaudePanes() []string {
+func (tw *TmuxWatcher) findClaudePanes() ([]string, error) {
 	out, err := exec.Command("tmux", "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index} #{pane_current_command}").Output()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var panes []string
 	for _, line := range strings.Split(string(out), "\n") {
@@ -97,7 +114,7 @@ func (tw *TmuxWatcher) findClaudePanes() []string {
 			}
 		}
 	}
-	return panes
+	return panes, nil
 }
 
 func (tw *TmuxWatcher) paneHash(paneID string) string {

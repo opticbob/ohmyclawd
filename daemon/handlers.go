@@ -20,16 +20,16 @@ func (m *Metrics) IncFail()  { m.fail.Add(1) }
 type Handler struct {
 	state   *State
 	metrics *Metrics
-	tmux    *TmuxWatcher
+	sw      SessionWatcher
 	now     func() time.Time
 	mux     *http.ServeMux
 }
 
-func NewHandler(s *State, m *Metrics, tw *TmuxWatcher, now func() time.Time, token string) *Handler {
+func NewHandler(s *State, m *Metrics, sw SessionWatcher, now func() time.Time, token string) *Handler {
 	if now == nil {
 		now = time.Now
 	}
-	h := &Handler{state: s, metrics: m, tmux: tw, now: now, mux: http.NewServeMux()}
+	h := &Handler{state: s, metrics: m, sw: sw, now: now, mux: http.NewServeMux()}
 
 	protected := http.NewServeMux()
 	protected.HandleFunc("/usage", h.usage)
@@ -45,9 +45,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.mux.Serv
 
 func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 	u, _ := h.state.Load()
-	if h.tmux != nil {
-		u.CS = h.tmux.Sessions()
-		u.CW = h.tmux.Waiting()
+	if h.sw != nil {
+		u.CS = h.sw.Sessions()
+		u.CW = h.sw.Waiting()
 	}
 	body, _ := json.Marshal(u)
 	w.Header().Set("Content-Type", "application/json")
