@@ -20,7 +20,15 @@ func main() {
 	probeInterval := getenvDur("OHMYCLAWD_PROBE_INTERVAL", 60*time.Second)
 	credsPath := getenv("OHMYCLAWD_CREDS_PATH", defaultCredsPath())
 	anthropicURL := getenv("OHMYCLAWD_ANTHROPIC_URL", "https://api.anthropic.com/v1/messages")
-	sources := splitList(getenv("OHMYCLAWD_SOURCES", "probe"))
+	sources := splitList(getenv("OHMYCLAWD_SOURCES", "cli,probe"))
+	opts := chainOpts{
+		CredsPath:     credsPath,
+		AnthropicURL:  anthropicURL,
+		ProbeInterval: probeInterval,
+		CLIInterval:   getenvDur("OHMYCLAWD_CLI_INTERVAL", 3*time.Minute),
+		ClaudeBin:     getenv("OHMYCLAWD_CLAUDE_BIN", ""),
+		ClaudeConfig:  getenv("OHMYCLAWD_CLAUDE_CONFIG_DIR", ""),
+	}
 	fakeMode := flag.Bool("fake", false, "serve a scripted Usage curve, no Anthropic calls")
 	flag.Parse()
 
@@ -38,7 +46,7 @@ func main() {
 		go runFake(ctx, state)
 		log.Printf("ohmyclawd-daemon listening on %s (fake mode)", listen)
 	} else {
-		chain, err := buildChain(sources, credsPath, anthropicURL, probeInterval)
+		chain, err := buildChain(sources, opts)
 		if err != nil {
 			log.Fatalf("%v", err)
 		}
@@ -70,12 +78,23 @@ func main() {
 // buildChain assembles the ordered usage sources. Missing credentials are
 // fatal only when the probe is the sole source; otherwise the probe is
 // dropped from the chain with a warning.
-func buildChain(names []string, credsPath, anthropicURL string, probeInterval time.Duration) (*Chain, error) {
+type chainOpts struct {
+	CredsPath     string
+	AnthropicURL  string
+	ProbeInterval time.Duration
+	CLIInterval   time.Duration
+	ClaudeBin     string
+	ClaudeConfig  string
+}
+
+func buildChain(names []string, o chainOpts) (*Chain, error) {
 	var srcs []Source
 	for _, n := range names {
 		switch n {
+		case "cli":
+			srcs = append(srcs, &CLISource{Bin: o.ClaudeBin, ConfigDir: o.ClaudeConfig, Every: o.CLIInterval})
 		case "probe":
-			creds, err := LoadCreds(credsPath)
+			creds, err := LoadCreds(o.CredsPath)
 			if err != nil {
 				if len(names) == 1 {
 					return nil, fmt.Errorf("credentials: %w", err)
@@ -86,12 +105,12 @@ func buildChain(names []string, credsPath, anthropicURL string, probeInterval ti
 			log.Printf("loaded OAuth token, expires unix-ms=%d", creds.ExpiresAt)
 			srcs = append(srcs, &ProbeSource{
 				P: &Prober{
-					URL:   anthropicURL,
+					URL:   o.AnthropicURL,
 					Token: creds.AccessToken,
 					HTTP:  &http.Client{Timeout: 30 * time.Second},
 				},
-				ReloadCreds: func() (*Creds, error) { return LoadCreds(credsPath) },
-				Every:       probeInterval,
+				ReloadCreds: func() (*Creds, error) { return LoadCreds(o.CredsPath) },
+				Every:       o.ProbeInterval,
 			})
 		default:
 			return nil, fmt.Errorf("OHMYCLAWD_SOURCES: unknown source %q", n)

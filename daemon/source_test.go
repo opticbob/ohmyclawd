@@ -127,14 +127,21 @@ func TestChainAllFailAppliesBackoff(t *testing.T) {
 }
 
 func TestBuildChainCredsFatalOnlyWhenProbeAlone(t *testing.T) {
-	missing := "testdata/does_not_exist.json"
-	if _, err := buildChain([]string{"probe"}, missing, "", time.Minute); err == nil {
+	missing := chainOpts{CredsPath: "testdata/does_not_exist.json"}
+	if _, err := buildChain([]string{"probe"}, missing); err == nil {
 		t.Fatal("probe-only with missing creds: want error")
 	}
-	if _, err := buildChain([]string{"probe"}, "testdata/creds_valid.json", "", time.Minute); err != nil {
+	if _, err := buildChain([]string{"probe"}, chainOpts{CredsPath: "testdata/creds_valid.json"}); err != nil {
 		t.Fatalf("probe-only with creds: %v", err)
 	}
-	if _, err := buildChain([]string{"bogus"}, missing, "", time.Minute); err == nil {
+	c, err := buildChain([]string{"cli", "probe"}, missing)
+	if err != nil {
+		t.Fatalf("cli,probe with missing creds: %v", err)
+	}
+	if len(c.Sources) != 1 || c.Sources[0].Name() != "cli" {
+		t.Fatalf("want probe dropped, got %d sources", len(c.Sources))
+	}
+	if _, err := buildChain([]string{"bogus"}, missing); err == nil {
 		t.Fatal("unknown source: want error")
 	}
 }
