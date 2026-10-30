@@ -15,8 +15,27 @@ import (
 )
 
 func main() {
+	tokenFile := getenv("OHMYCLAWD_TOKEN_FILE", defaultTokenFile())
+	// Subcommands are dispatched before flag.Parse so `-fake` keeps working.
+	if len(os.Args) > 1 && os.Args[1] == "token" {
+		err := runTokenCmd(os.Args[2:], tokenFile, os.Stdout, os.Stderr)
+		switch {
+		case err == flag.ErrHelp:
+		case err != nil:
+			fmt.Fprintf(os.Stderr, "token: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	listen := getenv("OHMYCLAWD_LISTEN", "127.0.0.1:8787")
-	token := getenv("OHMYCLAWD_TOKEN", "")
+	token, err := resolveToken(os.Getenv("OHMYCLAWD_TOKEN"), tokenFile, log.Printf)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	if token == "" && !isLoopback(listen) {
+		log.Printf("warning: listening on %s with no token; anyone on the network can read /usage. Run `ohmyclawd-daemon token` to create one.", listen)
+	}
 	probeInterval := getenvDur("OHMYCLAWD_PROBE_INTERVAL", 60*time.Second)
 	credsPath := getenv("OHMYCLAWD_CREDS_PATH", defaultCredsPath())
 	anthropicURL := getenv("OHMYCLAWD_ANTHROPIC_URL", "https://api.anthropic.com/v1/messages")

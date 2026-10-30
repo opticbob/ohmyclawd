@@ -7,13 +7,25 @@ set -euo pipefail
 # Environment variables (optional):
 #   OHMYCLAWD_USER    — user who runs claude code (defaults to SUDO_USER)
 #   OHMYCLAWD_LISTEN  — bind address (default: 127.0.0.1:8787, use :8787 for LAN)
-#   OHMYCLAWD_TOKEN   — bearer token for /usage and /metrics (optional)
+#   OHMYCLAWD_TOKEN   — bearer token for /usage and /metrics (optional; stored in
+#                       /var/lib/ohmyclawd/token, generated on a fresh LAN install)
+#   OHMYCLAWD_NO_TOKEN=1 — don't generate a token on a fresh LAN install
 
 REPO="opariffazman/ohmyclawd"
 BINARY="ohmyclawd-daemon-linux-amd64"
 INSTALL_DIR="/usr/local/bin"
 SERVICE_NAME="ohmyclawd-daemon"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+STATE_DIR="/var/lib/ohmyclawd"
+TOKEN_FILE="${STATE_DIR}/token"
+
+is_loopback() {
+  local host="${1%:*}"
+  case "${host}" in
+    127.*|localhost|"[::1]") return 0 ;;
+  esac
+  return 1
+}
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "error: must run as root (sudo)" >&2
@@ -35,7 +47,9 @@ fi
 EXISTING_LISTEN=""
 EXISTING_TOKEN=""
 EXISTING_PROBE=""
+FRESH_INSTALL=1
 if [[ -f "${SERVICE_FILE}" ]]; then
+  FRESH_INSTALL=0
   EXISTING_LISTEN=$(grep -oP '(?<=Environment=OHMYCLAWD_LISTEN=).+' "${SERVICE_FILE}" 2>/dev/null || true)
   EXISTING_TOKEN=$(grep -oP '(?<=Environment=OHMYCLAWD_TOKEN=).+' "${SERVICE_FILE}" 2>/dev/null || true)
   EXISTING_PROBE=$(grep -oP '(?<=Environment=OHMYCLAWD_PROBE_INTERVAL=).+' "${SERVICE_FILE}" 2>/dev/null || true)
@@ -66,10 +80,17 @@ curl -fsSL -o "/tmp/${BINARY}" "${DOWNLOAD_URL}"
 install -m 0755 "/tmp/${BINARY}" "${INSTALL_DIR}/ohmyclawd-daemon"
 rm -f "/tmp/${BINARY}"
 
-# --- Build token line (only if set) ---
-TOKEN_LINE=""
+# --- Token lives in a 0600 file under the state dir, never in the unit ---
+install -d -m 0700 -o "${TARGET_USER}" -g "${TARGET_USER}" "${STATE_DIR}"
+GENERATED_TOKEN=""
 if [[ -n "${TOKEN}" ]]; then
-  TOKEN_LINE="Environment=OHMYCLAWD_TOKEN=${TOKEN}"
+  (umask 077; printf '%s\n' "${TOKEN}" > "${TOKEN_FILE}")
+  chown "${TARGET_USER}:${TARGET_USER}" "${TOKEN_FILE}"
+elif [[ "${FRESH_INSTALL}" == 1 && "${OHMYCLAWD_NO_TOKEN:-}" != 1 ]] && ! is_loopback "${LISTEN}"; then
+  GENERATED_TOKEN=$(sudo -u "${TARGET_USER}" "${INSTALL_DIR}/ohmyclawd-daemon" token)
+fi
+if [[ -f "${TOKEN_FILE}" ]]; then
+  TOKEN=$(cat "${TOKEN_FILE}")
 fi
 
 echo "==> installing systemd service for user '${TARGET_USER}'..."
@@ -89,7 +110,9 @@ Group=${TARGET_USER}
 # Bind address: 127.0.0.1:8787 (localhost) or :8787 (LAN)
 Environment=OHMYCLAWD_LISTEN=${LISTEN}
 Environment=OHMYCLAWD_PROBE_INTERVAL=${PROBE}
-${TOKEN_LINE}
+# Bearer token: ${TOKEN_FILE} (show/create: sudo -u ${TARGET_USER} ohmyclawd-daemon token)
+StateDirectory=ohmyclawd
+StateDirectoryMode=0700
 NoNewPrivileges=true
 PrivateTmp=false
 ProtectSystem=strict
@@ -108,8 +131,11 @@ systemctl --no-pager status "${SERVICE_NAME}.service" | head -5
 echo ""
 echo "config:"
 echo "  listen: ${LISTEN}"
-if [[ -n "${TOKEN}" ]]; then
-  echo "  token:  set (${#TOKEN} chars)"
+if [[ -n "${GENERATED_TOKEN}" ]]; then
+  echo "  token:  ${GENERATED_TOKEN}  (generated; enter it as Daemon Token on the board)"
+  echo "  usage:  curl -H 'Authorization: Bearer <token>' http://$(hostname).local:${LISTEN##*:}/usage"
+elif [[ -n "${TOKEN}" ]]; then
+  echo "  token:  set (${#TOKEN} chars) in ${TOKEN_FILE}"
   echo "  usage:  curl -H 'Authorization: Bearer <token>' http://$(hostname).local:${LISTEN##*:}/usage"
 else
   echo "  token:  none (open access)"

@@ -20,10 +20,13 @@ Environment=OHMYCLAWD_PROBE_INTERVAL=60s
 
 # OHMYCLAWD_CREDS_PATH defaults to ~/.claude/.credentials.json under the target user.
 
-# Optional bearer token. If set, /usage and /metrics require:
+# Optional bearer token, read from $STATE_DIRECTORY/token (mode 0600).
+# If the file exists, /usage and /metrics require:
 #   Authorization: Bearer <token>
-# Leave empty or remove for open access (LAN-only setups).
-# Environment=OHMYCLAWD_TOKEN=
+# Create or show it with:  sudo -u __USER__ ohmyclawd-daemon token
+# Delete the file for open access (LAN-only setups).
+StateDirectory=ohmyclawd
+StateDirectoryMode=0700
 NoNewPrivileges=true
 PrivateTmp=false
 ProtectSystem=strict
