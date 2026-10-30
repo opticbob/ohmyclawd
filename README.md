@@ -44,16 +44,18 @@ Real-time session + weekly usage. Animated pixel sprites. Digital clock.
 
 ### 1. Install daemon
 
-Runs on your machine. Polls Anthropic rate-limit headers, serves usage JSON.
+Runs on your machine. Reads usage from `claude -p /usage` (falling back to Anthropic rate-limit headers), counts Claude sessions via herdr or tmux, serves usage JSON.
 
 ```bash
-# basic
+# basic (localhost only)
 curl -fsSL https://raw.githubusercontent.com/opariffazman/ohmyclawd/master/install.sh | sudo bash
 
-# with auth (recommended for remote/tunnel access)
+# LAN access — generates a bearer token and prints it for the board
 curl -fsSL https://raw.githubusercontent.com/opariffazman/ohmyclawd/master/install.sh \
-  | OHMYCLAWD_TOKEN=yourpassphrase sudo -E bash
+  | OHMYCLAWD_LISTEN=:8787 sudo -E bash
 ```
+
+The token lives in `/var/lib/ohmyclawd/token`; `sudo -u $USER ohmyclawd-daemon token` shows it. On WSL, enable systemd and see the [WSL notes](docs/assets/DAEMON.md#wsl) for LAN access.
 
 Other platforms — [Releases](https://github.com/opariffazman/ohmyclawd/releases):
 
@@ -99,7 +101,7 @@ First boot creates WiFi AP:
 2. Captive portal opens (or `192.168.4.1`)
 3. Enter **WiFi SSID** + **password**
 4. Set **Daemon URL** (default: `http://ohmyclawd.local:8787`)
-5. Set **Daemon Token** (must match `OHMYCLAWD_TOKEN` on daemon)
+5. Set **Daemon Token** (output of `ohmyclawd-daemon token` on the daemon host)
 6. Set **Timezone** ([POSIX TZ format](https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html))
 7. Save — reboots and connects
 
@@ -160,7 +162,7 @@ curl -fsSL https://raw.githubusercontent.com/opariffazman/ohmyclawd/master/insta
 
 ## How It Works
 
-Daemon reads `~/.claude/.credentials.json` (auto-created by Claude Code auth). Makes lightweight API requests, reads rate-limit response headers for session/weekly usage %. No messages sent or read — headers only.
+Daemon runs `claude -p /usage` every few minutes (no tokens spent, hooks and session persistence disabled) and parses session/weekly usage %. If the CLI is unavailable it falls back to a 1-token API request using `~/.claude/.credentials.json` and reads the rate-limit response headers. Session and waiting counts come from herdr's socket when it's running, else tmux. Fetching pauses while no board is polling. `OHMYCLAWD_SOURCES=probe OHMYCLAWD_SESSIONS=tmux` restores the original behavior — see [daemon docs](docs/assets/DAEMON.md).
 
 ## Credits
 

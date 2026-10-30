@@ -16,11 +16,16 @@ if ! id -u "${TARGET_USER}" >/dev/null 2>&1; then
   echo "user '${TARGET_USER}' does not exist" >&2
   exit 1
 fi
+# %h in a system unit is root's home, so substitute the real one.
+TARGET_HOME=$(getent passwd "${TARGET_USER}" | cut -d: -f6)
 
 SERVICE_NAME="ohmyclawd-daemon"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 STATE_DIR="/var/lib/ohmyclawd"
-TOKEN_FILE="${STATE_DIR}/token"
+
+# Settings carried across upgrades (OHMYCLAWD_<key> in the environment wins).
+PRESERVE_KEYS=(LISTEN PROBE_INTERVAL SOURCES CLI_INTERVAL CLAUDE_BIN CLAUDE_CONFIG_DIR
+  SESSIONS HERDR_SOCK AGENT_MATCH HERDR_WAITING IDLE_AFTER TOKEN_FILE)
 
 FRESH_INSTALL=1
 [[ -f "${SERVICE_FILE}" ]] && FRESH_INSTALL=0
@@ -31,6 +36,17 @@ is_loopback() {
     127.*|localhost|"[::1]") return 0 ;;
   esac
   return 1
+}
+
+# set_env KEY VALUE — set (or uncomment) Environment=OHMYCLAWD_KEY in the unit.
+set_env() {
+  local val
+  val=$(printf '%s' "$2" | sed 's/[&|\\]/\\&/g')
+  if grep -qE "^(# )?Environment=OHMYCLAWD_$1=" "${SERVICE_FILE}"; then
+    sed -i -E "s|^(# )?Environment=OHMYCLAWD_$1=.*|Environment=OHMYCLAWD_$1=${val}|" "${SERVICE_FILE}"
+  else
+    sed -i "/^StateDirectory=/i Environment=OHMYCLAWD_$1=${val}" "${SERVICE_FILE}"
+  fi
 }
 
 cd "$(dirname "$0")"
@@ -45,19 +61,25 @@ go build -trimpath -ldflags='-s -w' -o ohmyclawd-daemon .
 install -m 0755 ohmyclawd-daemon /usr/local/bin/ohmyclawd-daemon
 
 # Preserve existing env vars on upgrade
-EXISTING_LISTEN=$(grep -oP '(?<=Environment=OHMYCLAWD_LISTEN=).+' "${SERVICE_FILE}" 2>/dev/null || true)
+declare -A KEEP=()
+for k in "${PRESERVE_KEYS[@]}"; do
+  v=$(grep -oP "(?<=^Environment=OHMYCLAWD_${k}=).+" "${SERVICE_FILE}" 2>/dev/null || true)
+  envname="OHMYCLAWD_${k}"
+  [[ -n "${!envname:-}" ]] && v="${!envname}"
+  [[ -n "${v}" ]] && KEEP[${k}]="${v}"
+done
 EXISTING_TOKEN=$(grep -oP '(?<=Environment=OHMYCLAWD_TOKEN=).+' "${SERVICE_FILE}" 2>/dev/null || true)
-LISTEN="${OHMYCLAWD_LISTEN:-${EXISTING_LISTEN}}"
 TOKEN="${OHMYCLAWD_TOKEN:-${EXISTING_TOKEN}}"
 
-sed "s|__USER__|${TARGET_USER}|g" systemd/ohmyclawd-daemon.service \
-  > "${SERVICE_FILE}"
+sed -e "s|__USER__|${TARGET_USER}|g" -e "s|__HOME__|${TARGET_HOME}|g" \
+  systemd/ohmyclawd-daemon.service > "${SERVICE_FILE}"
 
 # Re-apply preserved values
-if [[ -n "${LISTEN}" ]]; then
-  sed -i "s|Environment=OHMYCLAWD_LISTEN=.*|Environment=OHMYCLAWD_LISTEN=${LISTEN}|" "${SERVICE_FILE}"
-fi
-LISTEN=$(grep -oP '(?<=Environment=OHMYCLAWD_LISTEN=).+' "${SERVICE_FILE}")
+for k in "${!KEEP[@]}"; do
+  set_env "${k}" "${KEEP[${k}]}"
+done
+LISTEN=$(grep -oP '(?<=^Environment=OHMYCLAWD_LISTEN=).+' "${SERVICE_FILE}")
+TOKEN_FILE="${KEEP[TOKEN_FILE]:-${STATE_DIR}/token}"
 
 # Token lives in a 0600 file under the state dir, never in the unit.
 install -d -m 0700 -o "${TARGET_USER}" -g "${TARGET_USER}" "${STATE_DIR}"
@@ -67,7 +89,8 @@ if [[ -n "${TOKEN}" ]]; then
   chown "${TARGET_USER}:${TARGET_USER}" "${TOKEN_FILE}"
   echo "==> bearer token stored in ${TOKEN_FILE}"
 elif [[ "${FRESH_INSTALL}" == 1 && "${OHMYCLAWD_NO_TOKEN:-}" != 1 ]] && ! is_loopback "${LISTEN}"; then
-  GENERATED_TOKEN=$(sudo -u "${TARGET_USER}" /usr/local/bin/ohmyclawd-daemon token)
+  GENERATED_TOKEN=$(sudo -u "${TARGET_USER}" env OHMYCLAWD_TOKEN_FILE="${TOKEN_FILE}" \
+    /usr/local/bin/ohmyclawd-daemon token)
 fi
 
 systemctl daemon-reload

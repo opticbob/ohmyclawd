@@ -1,5 +1,5 @@
 [Unit]
-Description=ohmyclawd daemon — probes Anthropic for Claude Code utilization
+Description=ohmyclawd daemon — reports Claude Code utilization and sessions
 Wants=network-online.target
 After=network-online.target
 
@@ -15,8 +15,23 @@ Group=__USER__
 #   :8787           — all interfaces (LAN access)
 Environment=OHMYCLAWD_LISTEN=127.0.0.1:8787
 
-# Probe interval for Anthropic rate-limit headers.
+# Usage sources, tried in order:
+#   cli   — `claude -p /usage` (no tokens used), every OHMYCLAWD_CLI_INTERVAL
+#   probe — 1-token Haiku request, read rate-limit headers, every OHMYCLAWD_PROBE_INTERVAL
+# Set to "probe" for the original behavior.
+Environment=OHMYCLAWD_SOURCES=cli,probe
 Environment=OHMYCLAWD_PROBE_INTERVAL=60s
+# Environment=OHMYCLAWD_CLI_INTERVAL=3m
+
+# Stop fetching after no /usage requests for this long (0 = never idle).
+# Environment=OHMYCLAWD_IDLE_AFTER=5m
+
+# Session counting: auto (herdr, else tmux) | herdr | tmux | off
+# Environment=OHMYCLAWD_SESSIONS=auto
+# Environment=OHMYCLAWD_HERDR_WAITING=blocked,done
+
+# systemd's default PATH omits ~/.local/bin, where claude usually lives.
+Environment=PATH=__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 # OHMYCLAWD_CREDS_PATH defaults to ~/.claude/.credentials.json under the target user.
 
@@ -31,7 +46,10 @@ NoNewPrivileges=true
 PrivateTmp=false
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=
+# The CLI refreshes OAuth credentials and caches state under ~/.claude. It
+# also tries to save ~/.claude.json via a temp file in $HOME; that fails
+# harmlessly here and /usage still works. "-" tolerates a missing path.
+ReadWritePaths=__HOME__/.claude -__HOME__/.claude.json
 
 [Install]
 WantedBy=multi-user.target
