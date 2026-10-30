@@ -26,6 +26,8 @@ func runFake(ctx context.Context, s *State) {
 		case <-t.C:
 			cp := steps[i%len(steps)]
 			cp.Ts = time.Now().Unix()
+			cp.OKTs = cp.Ts
+			cp.Src = "fake"
 			s.Store(&cp)
 			i++
 		}

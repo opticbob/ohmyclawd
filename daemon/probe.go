@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,9 +42,12 @@ func IsMissingHeaders(err error) bool { return errors.Is(err, errNoHeaders) }
 // On 401 the returned error wraps errAuth. On 429 the returned error wraps
 // errRateLimited *and* a Usage is returned with whatever ST/S/W headers
 // the response carried (caller can keep it as best-effort).
-func (p *Prober) Run() (*Usage, error) {
+func (p *Prober) Run() (*Usage, error) { return p.RunContext(context.Background()) }
+
+// RunContext is Run with a context that cancels the in-flight request.
+func (p *Prober) RunContext(ctx context.Context) (*Usage, error) {
 	body := []byte(`{"model":"claude-haiku-4-5","max_tokens":1,"messages":[{"role":"user","content":"."}]}`)
-	req, err := http.NewRequest(http.MethodPost, p.URL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.URL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
