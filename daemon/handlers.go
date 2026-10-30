@@ -11,6 +11,7 @@ import (
 type Metrics struct {
 	probe atomic.Uint64
 	fail  atomic.Uint64
+	idle  atomic.Bool
 }
 
 func NewMetrics() *Metrics   { return &Metrics{} }
@@ -23,6 +24,10 @@ type Handler struct {
 	sw      SessionWatcher
 	now     func() time.Time
 	mux     *http.ServeMux
+
+	// Activity, when set, is touched on every authorized /usage request.
+	// /metrics deliberately doesn't count, so scrapers don't keep the loop awake.
+	Activity *Activity
 }
 
 func NewHandler(s *State, m *Metrics, sw SessionWatcher, now func() time.Time, token string) *Handler {
@@ -44,6 +49,9 @@ func NewHandler(s *State, m *Metrics, sw SessionWatcher, now func() time.Time, t
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.mux.ServeHTTP(w, r) }
 
 func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
+	if h.Activity != nil {
+		h.Activity.Touch(h.now())
+	}
 	u, _ := h.state.Load()
 	if h.sw != nil {
 		u.CS = h.sw.Sessions()

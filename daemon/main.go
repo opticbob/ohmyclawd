@@ -32,6 +32,7 @@ func main() {
 	sessionsMode := strings.ToLower(getenv("OHMYCLAWD_SESSIONS", "auto"))
 	agentMatch := splitList(getenv("OHMYCLAWD_AGENT_MATCH", "claude,kiro"))
 	herdrWaiting := splitList(getenv("OHMYCLAWD_HERDR_WAITING", "blocked,done"))
+	idleAfter := getenvDur("OHMYCLAWD_IDLE_AFTER", 5*time.Minute)
 	fakeMode := flag.Bool("fake", false, "serve a scripted Usage curve, no Anthropic calls")
 	flag.Parse()
 
@@ -42,6 +43,8 @@ func main() {
 		log.Fatalf("%v", err)
 	}
 	handler := NewHandler(state, metrics, sw, time.Now, token)
+	activity := NewActivity(time.Now())
+	handler.Activity = activity
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -59,6 +62,8 @@ func main() {
 		cfg := LoopConfig{
 			RateLimited: 5 * time.Minute,
 			Backoff:     []time.Duration{60 * time.Second, 120 * time.Second, 240 * time.Second, 480 * time.Second, 600 * time.Second},
+			Activity:    activity,
+			IdleAfter:   idleAfter,
 		}
 		go RunLoop(ctx, chain, state, metrics, cfg)
 		log.Printf("ohmyclawd-daemon listening on %s (sources %s)", listen, strings.Join(sources, ","))
