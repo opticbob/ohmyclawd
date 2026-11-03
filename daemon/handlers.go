@@ -65,6 +65,9 @@ type Handler struct {
 	// Activity, when set, is touched on every authorized /usage request.
 	// /metrics deliberately doesn't count, so scrapers don't keep the loop awake.
 	Activity *Activity
+
+	// MaxAgents caps the /agents list (0 = no cap), matching the MQTT payload.
+	MaxAgents int
 }
 
 func NewHandler(s *State, m *Metrics, sw SessionWatcher, now func() time.Time, token string) *Handler {
@@ -76,9 +79,11 @@ func NewHandler(s *State, m *Metrics, sw SessionWatcher, now func() time.Time, t
 	protected := http.NewServeMux()
 	protected.HandleFunc("/usage", h.usage)
 	protected.HandleFunc("/metrics", h.prom)
+	protected.HandleFunc("/agents", h.agents)
 
 	h.mux.Handle("/usage", AuthMiddleware(token, protected))
 	h.mux.Handle("/metrics", AuthMiddleware(token, protected))
+	h.mux.Handle("/agents", AuthMiddleware(token, protected))
 	h.mux.HandleFunc("/healthz", h.healthz)
 	return h
 }
@@ -97,6 +102,15 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 		resp.SW = h.sw.Kind()
 	}
 	body, _ := json.Marshal(resp)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(body)
+}
+
+// agents serves the herdr agent table, the same JSON as the MQTT agents topic.
+// It doesn't touch Activity: it carries no usage data.
+func (h *Handler) agents(w http.ResponseWriter, r *http.Request) {
+	body, _ := json.Marshal(buildAgentsPayload(h.sw, h.MaxAgents, h.now()))
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(body)

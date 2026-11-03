@@ -278,7 +278,7 @@ func TestNewSessionWatcherModes(t *testing.T) {
 		"tmux":  "*main.TmuxWatcher",
 		"off":   "main.noopWatcher",
 	} {
-		w, err := newSessionWatcher(mode, "/nonexistent", nil, nil)
+		w, err := newSessionWatcher(mode, "/nonexistent", nil, nil, 0)
 		if err != nil {
 			t.Fatalf("%s: %v", mode, err)
 		}
@@ -286,7 +286,7 @@ func TestNewSessionWatcherModes(t *testing.T) {
 			t.Errorf("%s -> %s, want %s", mode, got, want)
 		}
 	}
-	if _, err := newSessionWatcher("bogus", "", nil, nil); err == nil {
+	if _, err := newSessionWatcher("bogus", "", nil, nil, 0); err == nil {
 		t.Error("bogus mode: want error")
 	}
 }

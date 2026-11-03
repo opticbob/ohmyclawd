@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -52,18 +53,21 @@ func main() {
 	agentMatch := splitList(getenv("OHMYCLAWD_AGENT_MATCH", "claude,kiro"))
 	herdrWaiting := splitList(getenv("OHMYCLAWD_HERDR_WAITING", "blocked"))
 	idleAfter := getenvDur("OHMYCLAWD_IDLE_AFTER", 5*time.Minute)
+	herdrReconcile := getenvDur("OHMYCLAWD_HERDR_RECONCILE", 30*time.Second)
+	maxAgents := getenvInt("OHMYCLAWD_MAX_AGENTS", 12)
 	fakeMode := flag.Bool("fake", false, "serve a scripted Usage curve, no Anthropic calls")
 	flag.Parse()
 
 	state := NewState()
 	metrics := NewMetrics()
-	sw, err := newSessionWatcher(sessionsMode, defaultHerdrSock(), agentMatch, herdrWaiting)
+	sw, err := newSessionWatcher(sessionsMode, defaultHerdrSock(), agentMatch, herdrWaiting, herdrReconcile)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
 	handler := NewHandler(state, metrics, sw, time.Now, token)
 	activity := NewActivity(time.Now())
 	handler.Activity = activity
+	handler.MaxAgents = maxAgents
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -176,6 +180,15 @@ func defaultCredsPath() string {
 func getenv(k, d string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	return d
+}
+
+func getenvInt(k string, d int) int {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return d
 }

@@ -75,12 +75,19 @@ func (noopWatcher) Kind() string            { return "none" }
 func (noopWatcher) Run(ctx context.Context) { <-ctx.Done() }
 
 // newSessionWatcher builds the watcher for OHMYCLAWD_SESSIONS.
-func newSessionWatcher(mode, herdrSock string, match, waiting []string) (SessionWatcher, error) {
+func newSessionWatcher(mode, herdrSock string, match, waiting []string, reconcile time.Duration) (SessionWatcher, error) {
+	herdr := func() *HerdrWatcher {
+		h := NewHerdrWatcher(herdrSock, match, waiting)
+		if reconcile > 0 {
+			h.Reconcile = reconcile
+		}
+		return h
+	}
 	switch mode {
 	case "auto", "":
-		return &AutoWatcher{Primary: NewHerdrWatcher(herdrSock, match, waiting), Fallback: NewTmuxWatcher()}, nil
+		return &AutoWatcher{Primary: herdr(), Fallback: NewTmuxWatcher()}, nil
 	case "herdr":
-		return NewHerdrWatcher(herdrSock, match, waiting), nil
+		return herdr(), nil
 	case "tmux":
 		return NewTmuxWatcher(), nil
 	case "off":
@@ -110,4 +117,24 @@ func logKindChanges(ctx context.Context, w SessionWatcher, every time.Duration) 
 			prev = k
 		}
 	}
+}
+
+// Agents returns the primary's agents while it is the watcher answering, and
+// nil otherwise: tmux can't report per-agent status.
+func (a *AutoWatcher) Agents() []Agent {
+	if src, ok := a.Primary.(AgentSource); ok && a.Primary.Healthy() {
+		return src.Agents()
+	}
+	return nil
+}
+
+func (a *AutoWatcher) Counts() map[string]int { return countStatuses(a.Agents()) }
+
+// Changed forwards the primary's change signal; a nil channel (never fires)
+// if the primary can't report agents.
+func (a *AutoWatcher) Changed() <-chan struct{} {
+	if src, ok := a.Primary.(AgentSource); ok {
+		return src.Changed()
+	}
+	return nil
 }

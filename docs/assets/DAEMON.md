@@ -60,6 +60,8 @@ Env vars on systemd unit. Edit `/etc/systemd/system/ohmyclawd-daemon.service` (o
 | `OHMYCLAWD_HERDR_SOCK` | auto | herdr socket. Falls back to `HERDR_SOCK`, `HERDR_SOCKET_PATH`, `~/.config/herdr/herdr.sock` |
 | `OHMYCLAWD_AGENT_MATCH` | `claude,kiro` | herdr agent names counted as sessions (substring, case-insensitive) |
 | `OHMYCLAWD_HERDR_WAITING` | `blocked` | herdr `agent_status` values counted as waiting (`cw`). `blocked` = permission prompt or question |
+| `OHMYCLAWD_HERDR_RECONCILE` | `30s` | Full `pane.list` resync interval while following herdr's event stream |
+| `OHMYCLAWD_MAX_AGENTS` | `12` | Agents listed in `/agents`; the rest are counted in `more` |
 | `OHMYCLAWD_IDLE_AFTER` | `5m` | Stop fetching after no `/usage` requests for this long. `0` = never |
 | `OHMYCLAWD_TOKEN_FILE` | `$STATE_DIRECTORY/token`, else `/var/lib/ohmyclawd/token` | Bearer token file |
 | `OHMYCLAWD_TOKEN` | *(empty)* | **Deprecated.** Bearer token; overrides the file, logs a warning |
@@ -107,6 +109,7 @@ Tokens are 32 hex chars (the board's field holds 40). Upgrading migrates an `Env
 | `GET /usage` | token (if set) | JSON, see below |
 | `GET /healthz` | none | `ok` plain text |
 | `GET /metrics` | token (if set) | Prometheus exposition |
+| `GET /agents` | token (if set) | herdr agent table, see below |
 
 ### `/usage`
 
@@ -138,6 +141,26 @@ Existing: `ohmyclawd_probe_total`, `ohmyclawd_probe_fail_total`, `ohmyclawd_prob
 New: `ohmyclawd_source_fetch_total{src}`, `ohmyclawd_source_fail_total{src}`, `ohmyclawd_source_active{src}`, `ohmyclawd_data_age_seconds`, `ohmyclawd_idle`, `ohmyclawd_sessions`, `ohmyclawd_sessions_waiting`, `ohmyclawd_session_watcher{kind}`.
 
 The journal logs a line when the winning source or the session watcher changes (`usage source changed: cli -> probe`), and when fetching goes idle or resumes.
+
+### `/agents`
+
+Every herdr pane with a detected agent (any agent, not just `OHMYCLAWD_AGENT_MATCH`), blocked first:
+
+```json
+{"ts":1793731245,"sw":"herdr","n":{"blocked":1,"done":0,"idle":3,"unknown":0,"working":1},
+ "a":[{"id":"wG:p1","d":"verbulla","g":"claude","s":"blocked","t":1793731240}],"more":0}
+```
+
+| Key | What |
+|-----|------|
+| `sw` | Session watcher answering. Under `tmux` the list is empty: tmux can't report per-agent status |
+| `n` | Count per status: `blocked` (needs you), `done` (finished, unseen), `working`, `idle` (seen), `unknown` |
+| `a[].d` | Directory basename (`parent/base` when two paths share a basename, `~` for home) |
+| `a[].g` / `a[].s` | Agent name / status |
+| `a[].t` | Unix time the pane entered its status, as observed by the daemon (approximate after a restart) |
+| `more` | Agents left out by `OHMYCLAWD_MAX_AGENTS` |
+
+herdr is followed through its event stream, so a status change shows up within about a second. Status events need a per-pane subscription in herdr 0.9, so the daemon resubscribes whenever panes come or go, and resyncs with `pane.list` every `OHMYCLAWD_HERDR_RECONCILE`. An herdr without `events.subscribe` is polled every 5 s instead.
 
 ## Fake mode
 
