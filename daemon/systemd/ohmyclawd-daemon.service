@@ -28,7 +28,7 @@ Environment=OHMYCLAWD_PROBE_INTERVAL=60s
 
 # Session counting: auto (herdr, else tmux) | herdr | tmux | off
 # Environment=OHMYCLAWD_SESSIONS=auto
-# Environment=OHMYCLAWD_HERDR_WAITING=blocked,done
+# Environment=OHMYCLAWD_HERDR_WAITING=blocked
 
 # systemd's default PATH omits ~/.local/bin, where claude usually lives.
 Environment=PATH=__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin

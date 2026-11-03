@@ -50,7 +50,7 @@ func main() {
 	}
 	sessionsMode := strings.ToLower(getenv("OHMYCLAWD_SESSIONS", "auto"))
 	agentMatch := splitList(getenv("OHMYCLAWD_AGENT_MATCH", "claude,kiro"))
-	herdrWaiting := splitList(getenv("OHMYCLAWD_HERDR_WAITING", "blocked,done"))
+	herdrWaiting := splitList(getenv("OHMYCLAWD_HERDR_WAITING", "blocked"))
 	idleAfter := getenvDur("OHMYCLAWD_IDLE_AFTER", 5*time.Minute)
 	fakeMode := flag.Bool("fake", false, "serve a scripted Usage curve, no Anthropic calls")
 	flag.Parse()

@@ -59,7 +59,7 @@ Env vars on systemd unit. Edit `/etc/systemd/system/ohmyclawd-daemon.service` (o
 | `OHMYCLAWD_SESSIONS` | `auto` | `auto` \| `herdr` \| `tmux` \| `off` |
 | `OHMYCLAWD_HERDR_SOCK` | auto | herdr socket. Falls back to `HERDR_SOCK`, `HERDR_SOCKET_PATH`, `~/.config/herdr/herdr.sock` |
 | `OHMYCLAWD_AGENT_MATCH` | `claude,kiro` | herdr agent names counted as sessions (substring, case-insensitive) |
-| `OHMYCLAWD_HERDR_WAITING` | `blocked,done` | herdr `agent_status` values counted as waiting |
+| `OHMYCLAWD_HERDR_WAITING` | `blocked` | herdr `agent_status` values counted as waiting (`cw`). `blocked` = permission prompt or question |
 | `OHMYCLAWD_IDLE_AFTER` | `5m` | Stop fetching after no `/usage` requests for this long. `0` = never |
 | `OHMYCLAWD_TOKEN_FILE` | `$STATE_DIRECTORY/token`, else `/var/lib/ohmyclawd/token` | Bearer token file |
 | `OHMYCLAWD_TOKEN` | *(empty)* | **Deprecated.** Bearer token; overrides the file, logs a warning |
