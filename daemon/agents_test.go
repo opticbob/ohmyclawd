@@ -66,6 +66,7 @@ func newTestWatcher(now *time.Time) *HerdrWatcher {
 	h := NewHerdrWatcher("", []string{"claude"}, []string{"blocked"})
 	h.Home = "/h"
 	h.Now = func() time.Time { return *now }
+	h.HealthyFor = 24 * time.Hour // tests jump the clock; health has its own tests
 	return h
 }
 
@@ -349,6 +350,25 @@ func TestHerdrEventsLostResyncs(t *testing.T) {
 	srv.events <- `{"event":"events_lost","data":{}}`
 	waitFor(t, "resync", func() bool { return statusOf(h, "p1") == "done" })
 	waitFor(t, "resubscribe", func() bool { return srv.subs.Load() == 2 })
+}
+
+func TestHerdrStaysHealthyBetweenReconciles(t *testing.T) {
+	path := shortSockPath(t)
+	srv := startEventHerdr(t, path, herdrPane{PaneID: "p1", Agent: "claude", AgentStatus: "idle"})
+	h := fastWatcher(path) // Reconcile is an hour: only the open connection keeps it healthy
+	h.HealthyFor = 100 * time.Millisecond
+	runWatcher(t, h)
+	waitFor(t, "subscribe", func() bool { return srv.subs.Load() == 1 })
+	deadline := time.Now().Add(400 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if !h.Healthy() {
+			t.Fatal("went unhealthy while subscribed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	srv.ln.Close()
+	close(srv.events) // ends the subscription: EOF
+	waitFor(t, "unhealthy after EOF", func() bool { return !h.Healthy() })
 }
 
 func TestHerdrPaneSetChangeResubscribes(t *testing.T) {

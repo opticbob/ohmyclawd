@@ -30,6 +30,13 @@ Environment=OHMYCLAWD_PROBE_INTERVAL=60s
 # Environment=OHMYCLAWD_SESSIONS=auto
 # Environment=OHMYCLAWD_HERDR_WAITING=blocked
 
+# MQTT + Home Assistant discovery (off unless OHMYCLAWD_MQTT_URL is set).
+# Store the broker password with:  echo '<password>' | sudo -u __USER__ ohmyclawd-daemon mqtt-password
+# Environment=OHMYCLAWD_MQTT_URL=mqtt://homeassistant.local:1883
+# Environment=OHMYCLAWD_MQTT_USER=ohmyclawd
+# Environment=OHMYCLAWD_MQTT_NODE=myhost
+# Environment=OHMYCLAWD_NOTIFY_AFTER=30s
+
 # systemd's default PATH omits ~/.local/bin, where claude usually lives.
 Environment=PATH=__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin
 

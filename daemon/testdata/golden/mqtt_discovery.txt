@@ -1,0 +1,222 @@
+homeassistant/sensor/ohmyclawd_joshpc/waiting/config
+{
+  "availability_topic": "ohmyclawd/joshpc/status",
+  "device": {
+    "identifiers": [
+      "ohmyclawd_joshpc"
+    ],
+    "manufacturer": "ohmyclawd",
+    "name": "ohmyclawd joshpc"
+  },
+  "icon": "mdi:account-clock",
+  "name": "Waiting",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "state_class": "measurement",
+  "state_topic": "ohmyclawd/joshpc/agents",
+  "unique_id": "ohmyclawd_joshpc_waiting",
+  "value_template": "{{ value_json.n.blocked }}"
+}
+
+homeassistant/sensor/ohmyclawd_joshpc/done/config
+{
+  "availability_topic": "ohmyclawd/joshpc/status",
+  "device": {
+    "identifiers": [
+      "ohmyclawd_joshpc"
+    ],
+    "manufacturer": "ohmyclawd",
+    "name": "ohmyclawd joshpc"
+  },
+  "icon": "mdi:check-circle-outline",
+  "name": "Done",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "state_class": "measurement",
+  "state_topic": "ohmyclawd/joshpc/agents",
+  "unique_id": "ohmyclawd_joshpc_done",
+  "value_template": "{{ value_json.n.done }}"
+}
+
+homeassistant/sensor/ohmyclawd_joshpc/working/config
+{
+  "availability_topic": "ohmyclawd/joshpc/status",
+  "device": {
+    "identifiers": [
+      "ohmyclawd_joshpc"
+    ],
+    "manufacturer": "ohmyclawd",
+    "name": "ohmyclawd joshpc"
+  },
+  "icon": "mdi:cog-outline",
+  "name": "Working",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "state_class": "measurement",
+  "state_topic": "ohmyclawd/joshpc/agents",
+  "unique_id": "ohmyclawd_joshpc_working",
+  "value_template": "{{ value_json.n.working }}"
+}
+
+homeassistant/sensor/ohmyclawd_joshpc/agents/config
+{
+  "availability_topic": "ohmyclawd/joshpc/status",
+  "device": {
+    "identifiers": [
+      "ohmyclawd_joshpc"
+    ],
+    "manufacturer": "ohmyclawd",
+    "name": "ohmyclawd joshpc"
+  },
+  "icon": "mdi:robot-outline",
+  "json_attributes_template": "{{ {\"agents\": value_json.a, \"sw\": value_json.sw} | tojson }}",
+  "json_attributes_topic": "ohmyclawd/joshpc/agents",
+  "name": "Agents",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "state_topic": "ohmyclawd/joshpc/agents",
+  "unique_id": "ohmyclawd_joshpc_agents",
+  "value_template": "{{ value_json.n.values() | sum }}"
+}
+
+homeassistant/binary_sensor/ohmyclawd_joshpc/attention/config
+{
+  "availability_topic": "ohmyclawd/joshpc/status",
+  "device": {
+    "identifiers": [
+      "ohmyclawd_joshpc"
+    ],
+    "manufacturer": "ohmyclawd",
+    "name": "ohmyclawd joshpc"
+  },
+  "icon": "mdi:bell-alert-outline",
+  "name": "Attention",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "state_topic": "ohmyclawd/joshpc/agents",
+  "unique_id": "ohmyclawd_joshpc_attention",
+  "value_template": "{{ 'ON' if (value_json.n.blocked + value_json.n.done) \u003e 0 else 'OFF' }}"
+}
+
+homeassistant/sensor/ohmyclawd_joshpc/session/config
+{
+  "availability_topic": "ohmyclawd/joshpc/status",
+  "device": {
+    "identifiers": [
+      "ohmyclawd_joshpc"
+    ],
+    "manufacturer": "ohmyclawd",
+    "name": "ohmyclawd joshpc"
+  },
+  "icon": "mdi:timer-sand",
+  "name": "Session",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "state_class": "measurement",
+  "state_topic": "ohmyclawd/joshpc/usage",
+  "unique_id": "ohmyclawd_joshpc_session",
+  "unit_of_measurement": "%",
+  "value_template": "{{ value_json.s }}"
+}
+
+homeassistant/sensor/ohmyclawd_joshpc/week/config
+{
+  "availability_topic": "ohmyclawd/joshpc/status",
+  "device": {
+    "identifiers": [
+      "ohmyclawd_joshpc"
+    ],
+    "manufacturer": "ohmyclawd",
+    "name": "ohmyclawd joshpc"
+  },
+  "icon": "mdi:calendar-week",
+  "name": "Week",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "state_class": "measurement",
+  "state_topic": "ohmyclawd/joshpc/usage",
+  "unique_id": "ohmyclawd_joshpc_week",
+  "unit_of_measurement": "%",
+  "value_template": "{{ value_json.w }}"
+}
+
+homeassistant/sensor/ohmyclawd_joshpc/session_reset/config
+{
+  "availability_topic": "ohmyclawd/joshpc/status",
+  "device": {
+    "identifiers": [
+      "ohmyclawd_joshpc"
+    ],
+    "manufacturer": "ohmyclawd",
+    "name": "ohmyclawd joshpc"
+  },
+  "device_class": "timestamp",
+  "name": "Session reset",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "state_topic": "ohmyclawd/joshpc/usage",
+  "unique_id": "ohmyclawd_joshpc_session_reset",
+  "value_template": "{{ value_json.sra }}"
+}
+
+homeassistant/sensor/ohmyclawd_joshpc/week_reset/config
+{
+  "availability_topic": "ohmyclawd/joshpc/status",
+  "device": {
+    "identifiers": [
+      "ohmyclawd_joshpc"
+    ],
+    "manufacturer": "ohmyclawd",
+    "name": "ohmyclawd joshpc"
+  },
+  "device_class": "timestamp",
+  "name": "Week reset",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "state_topic": "ohmyclawd/joshpc/usage",
+  "unique_id": "ohmyclawd_joshpc_week_reset",
+  "value_template": "{{ value_json.wra }}"
+}
+
+homeassistant/sensor/ohmyclawd_joshpc/usage_source/config
+{
+  "availability_topic": "ohmyclawd/joshpc/status",
+  "device": {
+    "identifiers": [
+      "ohmyclawd_joshpc"
+    ],
+    "manufacturer": "ohmyclawd",
+    "name": "ohmyclawd joshpc"
+  },
+  "entity_category": "diagnostic",
+  "icon": "mdi:source-branch",
+  "name": "Usage source",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "state_topic": "ohmyclawd/joshpc/usage",
+  "unique_id": "ohmyclawd_joshpc_usage_source",
+  "value_template": "{{ value_json.src }}"
+}
+
+homeassistant/event/ohmyclawd_joshpc/agent/config
+{
+  "availability_topic": "ohmyclawd/joshpc/status",
+  "device": {
+    "identifiers": [
+      "ohmyclawd_joshpc"
+    ],
+    "manufacturer": "ohmyclawd",
+    "name": "ohmyclawd joshpc"
+  },
+  "event_types": [
+    "blocked",
+    "done"
+  ],
+  "icon": "mdi:robot-confused-outline",
+  "name": "Agent",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "state_topic": "ohmyclawd/joshpc/event",
+  "unique_id": "ohmyclawd_joshpc_agent"
+}
+

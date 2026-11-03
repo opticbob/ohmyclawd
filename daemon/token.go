@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -16,12 +17,15 @@ import (
 )
 
 // defaultTokenFile is $STATE_DIRECTORY/token under systemd, else /var/lib/ohmyclawd/token.
-func defaultTokenFile() string {
+func defaultTokenFile() string { return defaultStateFile("token") }
+
+// defaultStateFile is $STATE_DIRECTORY/<name> under systemd, else /var/lib/ohmyclawd/<name>.
+func defaultStateFile(name string) string {
 	if sd := os.Getenv("STATE_DIRECTORY"); sd != "" {
 		// systemd passes a colon-separated list when several dirs are configured.
-		return filepath.Join(strings.Split(sd, ":")[0], "token")
+		return filepath.Join(strings.Split(sd, ":")[0], name)
 	}
-	return "/var/lib/ohmyclawd/token"
+	return filepath.Join("/var/lib/ohmyclawd", name)
 }
 
 // resolveToken picks the bearer token: OHMYCLAWD_TOKEN (deprecated), then the
@@ -36,25 +40,33 @@ func resolveToken(envToken, path string, logf func(string, ...any)) (string, err
 
 // readTokenFile returns the trimmed token, or "" if the file doesn't exist.
 func readTokenFile(path string, logf func(string, ...any)) (string, error) {
+	tok, err := readSecretFile(path, "token file", logf)
+	if err == nil && tok == "" {
+		if _, statErr := os.Stat(path); statErr == nil {
+			logf("warning: token file %s is empty; serving without auth", path)
+		}
+	}
+	return tok, err
+}
+
+// readSecretFile returns the trimmed contents of path, or "" if it doesn't
+// exist. It warns (but doesn't fail) when the file is group/world readable.
+func readSecretFile(path, what string, logf func(string, ...any)) (string, error) {
 	fi, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("token file: %w", err)
+		return "", fmt.Errorf("%s: %w", what, err)
 	}
 	if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
-		logf("warning: token file %s is readable by group/others (mode %04o); chmod 600 it", path, fi.Mode().Perm())
+		logf("warning: %s %s is readable by group/others (mode %04o); chmod 600 it", what, path, fi.Mode().Perm())
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("token file: %w", err)
+		return "", fmt.Errorf("%s: %w", what, err)
 	}
-	tok := strings.TrimSpace(string(data))
-	if tok == "" {
-		logf("warning: token file %s is empty; serving without auth", path)
-	}
-	return tok, nil
+	return strings.TrimSpace(string(data)), nil
 }
 
 // ensureToken returns the token in path, creating it (or replacing it when
@@ -74,27 +86,49 @@ func ensureToken(path string, rotate bool) (string, error) {
 		return "", err
 	}
 	tok := hex.EncodeToString(buf)
-
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	f, err := os.CreateTemp(dir, ".token-*") // created 0600
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(f.Name()) // no-op after a successful rename
-	if _, err := f.WriteString(tok + "\n"); err != nil {
-		f.Close()
-		return "", err
-	}
-	if err := f.Close(); err != nil {
-		return "", err
-	}
-	if err := os.Rename(f.Name(), path); err != nil {
+	if err := writeSecretFile(path, tok); err != nil {
 		return "", err
 	}
 	return tok, nil
+}
+
+// writeSecretFile atomically replaces path with value and a newline, mode 0600.
+func writeSecretFile(path, value string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".secret-*") // created 0600
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name()) // no-op after a successful rename
+	if _, err := f.WriteString(value + "\n"); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
+}
+
+// runMQTTPasswordCmd implements `ohmyclawd-daemon mqtt-password`: it reads one
+// line from stdin and stores it, mode 0600.
+func runMQTTPasswordCmd(path string, stdin io.Reader, stdout io.Writer) error {
+	line, err := bufio.NewReader(stdin).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	pw := strings.TrimSpace(line)
+	if pw == "" {
+		return errors.New("empty password on stdin")
+	}
+	if err := writeSecretFile(path, pw); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "MQTT password stored in %s\n", path)
+	return nil
 }
 
 // runTokenCmd implements `ohmyclawd-daemon token [--rotate]`.

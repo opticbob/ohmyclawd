@@ -15,14 +15,21 @@ type Metrics struct {
 	fail  atomic.Uint64
 	idle  atomic.Bool
 
+	mqttEnabled    atomic.Bool
+	mqttConnected  atomic.Bool
+	mqttReconnects atomic.Uint64
+
 	mu      sync.Mutex
 	sources map[string]*sourceStats
 	active  string
+	mqttPub map[string]uint64 // by topic label
 }
 
 type sourceStats struct{ fetch, fail uint64 }
 
-func NewMetrics() *Metrics   { return &Metrics{sources: make(map[string]*sourceStats)} }
+func NewMetrics() *Metrics {
+	return &Metrics{sources: make(map[string]*sourceStats), mqttPub: make(map[string]uint64)}
+}
 func (m *Metrics) IncProbe() { m.probe.Add(1) }
 func (m *Metrics) IncFail()  { m.fail.Add(1) }
 
@@ -39,6 +46,13 @@ func (m *Metrics) SourceFetch(name string, err error) {
 	if err != nil {
 		st.fail++
 	}
+}
+
+// MQTTPublished counts one PUBLISH by topic label (status, agents, usage, event, config).
+func (m *Metrics) MQTTPublished(label string) {
+	m.mu.Lock()
+	m.mqttPub[label]++
+	m.mu.Unlock()
 }
 
 func (m *Metrics) SetActive(name string) {
@@ -95,13 +109,7 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 		h.Activity.Touch(h.now())
 	}
 	u, _ := h.state.Load()
-	resp := usageResponse{Usage: u, Age: h.dataAge(u), SW: "none"}
-	if h.sw != nil {
-		u.CS = h.sw.Sessions()
-		u.CW = h.sw.Waiting()
-		resp.SW = h.sw.Kind()
-	}
-	body, _ := json.Marshal(resp)
+	body, _ := json.Marshal(buildUsageResponse(u, h.sw, h.now()))
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(body)
@@ -116,12 +124,24 @@ func (h *Handler) agents(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
+// buildUsageResponse fills the per-request fields of /usage (also the MQTT
+// usage topic). u is a copy and gets the live session counts.
+func buildUsageResponse(u *Usage, sw SessionWatcher, now time.Time) usageResponse {
+	resp := usageResponse{Usage: u, Age: dataAge(u, now), SW: "none"}
+	if sw != nil {
+		u.CS = sw.Sessions()
+		u.CW = sw.Waiting()
+		resp.SW = sw.Kind()
+	}
+	return resp
+}
+
 // dataAge is seconds since the last successful fetch, or -1 if there was none.
-func (h *Handler) dataAge(u *Usage) int64 {
+func dataAge(u *Usage, now time.Time) int64 {
 	if u == nil || u.OKTs == 0 {
 		return -1
 	}
-	if age := h.now().Unix() - u.OKTs; age > 0 {
+	if age := now.Unix() - u.OKTs; age > 0 {
 		return age
 	}
 	return 0
@@ -161,6 +181,15 @@ func (h *Handler) prom(w http.ResponseWriter, r *http.Request) {
 		stats[i] = *m.sources[n]
 	}
 	active := m.active
+	pubLabels := make([]string, 0, len(m.mqttPub))
+	for l := range m.mqttPub {
+		pubLabels = append(pubLabels, l)
+	}
+	sort.Strings(pubLabels)
+	pubCounts := make([]uint64, len(pubLabels))
+	for i, l := range pubLabels {
+		pubCounts[i] = m.mqttPub[l]
+	}
 	m.mu.Unlock()
 
 	fmt.Fprintf(w, "# HELP ohmyclawd_source_fetch_total Fetch attempts per usage source\n")
@@ -178,7 +207,7 @@ func (h *Handler) prom(w http.ResponseWriter, r *http.Request) {
 	for _, n := range names {
 		fmt.Fprintf(w, "ohmyclawd_source_active{src=%q} %d\n", n, b2i(n == active))
 	}
-	if dataAge := h.dataAge(u); dataAge >= 0 {
+	if dataAge := dataAge(u, h.now()); dataAge >= 0 {
 		fmt.Fprintf(w, "# HELP ohmyclawd_data_age_seconds Seconds since the last successful fetch\n")
 		fmt.Fprintf(w, "# TYPE ohmyclawd_data_age_seconds gauge\n")
 		fmt.Fprintf(w, "ohmyclawd_data_age_seconds %d\n", dataAge)
@@ -202,6 +231,28 @@ func (h *Handler) prom(w http.ResponseWriter, r *http.Request) {
 	for _, k := range []string{"herdr", "tmux", "none"} {
 		fmt.Fprintf(w, "ohmyclawd_session_watcher{kind=%q} %d\n", k, b2i(k == kind))
 	}
+
+	counts := buildAgentsPayload(h.sw, 0, h.now()).N
+	fmt.Fprintf(w, "# HELP ohmyclawd_agents herdr agents by status\n")
+	fmt.Fprintf(w, "# TYPE ohmyclawd_agents gauge\n")
+	for _, st := range agentStatuses {
+		fmt.Fprintf(w, "ohmyclawd_agents{status=%q} %d\n", st, counts[st])
+	}
+
+	if !m.mqttEnabled.Load() {
+		return
+	}
+	fmt.Fprintf(w, "# HELP ohmyclawd_mqtt_connected 1 while connected to the MQTT broker\n")
+	fmt.Fprintf(w, "# TYPE ohmyclawd_mqtt_connected gauge\n")
+	fmt.Fprintf(w, "ohmyclawd_mqtt_connected %d\n", b2i(m.mqttConnected.Load()))
+	fmt.Fprintf(w, "# HELP ohmyclawd_mqtt_publish_total MQTT messages published, by topic\n")
+	fmt.Fprintf(w, "# TYPE ohmyclawd_mqtt_publish_total counter\n")
+	for i, l := range pubLabels {
+		fmt.Fprintf(w, "ohmyclawd_mqtt_publish_total{topic=%q} %d\n", l, pubCounts[i])
+	}
+	fmt.Fprintf(w, "# HELP ohmyclawd_mqtt_reconnect_total MQTT connection attempts after the first\n")
+	fmt.Fprintf(w, "# TYPE ohmyclawd_mqtt_reconnect_total counter\n")
+	fmt.Fprintf(w, "ohmyclawd_mqtt_reconnect_total %d\n", m.mqttReconnects.Load())
 }
 
 func b2i(b bool) int {

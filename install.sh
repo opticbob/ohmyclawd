@@ -23,7 +23,8 @@ STATE_DIR="/var/lib/ohmyclawd"
 
 # Settings carried across upgrades (OHMYCLAWD_<key> in the environment wins).
 PRESERVE_KEYS=(LISTEN PROBE_INTERVAL SOURCES CLI_INTERVAL CLAUDE_BIN CLAUDE_CONFIG_DIR
-  SESSIONS HERDR_SOCK AGENT_MATCH HERDR_WAITING IDLE_AFTER TOKEN_FILE)
+  SESSIONS HERDR_SOCK AGENT_MATCH HERDR_WAITING HERDR_RECONCILE IDLE_AFTER TOKEN_FILE
+  MQTT_URL MQTT_USER MQTT_PASSWORD_FILE MQTT_PREFIX MQTT_NODE HA_DISCOVERY NOTIFY_AFTER MAX_AGENTS)
 
 is_loopback() {
   local host="${1%:*}"
@@ -134,6 +135,9 @@ Environment=OHMYCLAWD_SOURCES=cli,probe
 Environment=OHMYCLAWD_PROBE_INTERVAL=60s
 # Session counting: auto (herdr, else tmux) | herdr | tmux | off
 # Environment=OHMYCLAWD_SESSIONS=auto
+# MQTT + Home Assistant (off unless set). Password: ohmyclawd-daemon mqtt-password
+# Environment=OHMYCLAWD_MQTT_URL=mqtt://homeassistant.local:1883
+# Environment=OHMYCLAWD_MQTT_USER=ohmyclawd
 # systemd's default PATH omits ~/.local/bin, where claude usually lives.
 Environment=PATH=${TARGET_HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin
 # Bearer token: ${TOKEN_FILE} (show/create: sudo -u ${TARGET_USER} ohmyclawd-daemon token)

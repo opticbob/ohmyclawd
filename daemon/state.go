@@ -12,6 +12,14 @@ type State struct {
 	cur  *Usage
 	body []byte
 	etag string
+	obs  []func()
+}
+
+// OnStore registers f to run after every Store. f must not block.
+func (s *State) OnStore(f func()) {
+	s.mu.Lock()
+	s.obs = append(s.obs, f)
+	s.mu.Unlock()
 }
 
 func NewState() *State { return &State{cur: &Usage{}} }
@@ -28,7 +36,11 @@ func (s *State) Store(u *Usage) {
 	s.cur = &cp
 	s.body = body
 	s.etag = tag
+	obs := s.obs
 	s.mu.Unlock()
+	for _, f := range obs {
+		f()
+	}
 }
 
 func (s *State) Load() (*Usage, string) {

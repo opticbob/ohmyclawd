@@ -88,6 +88,39 @@ sudo rm /var/lib/ohmyclawd/token                  # back to open access
 
 Tokens are 32 hex chars (the board's field holds 40). Upgrading migrates an `Environment=OHMYCLAWD_TOKEN=` line into the file. A fresh install with a non-loopback `LISTEN` generates one unless `OHMYCLAWD_NO_TOKEN=1`. A LAN listener without a token logs a warning but still starts.
 
+### MQTT and Home Assistant
+
+Off unless `OHMYCLAWD_MQTT_URL` is set. The daemon then publishes the herdr agent table and usage to an MQTT broker, with Home Assistant discovery, using a small built-in publish-only MQTT 3.1.1 client (no new dependencies).
+
+| Var | Default | What |
+|-----|---------|------|
+| `OHMYCLAWD_MQTT_URL` | unset (off) | `mqtt://host:1883` or `mqtts://host:8883` (TLS, system roots) |
+| `OHMYCLAWD_MQTT_USER` | unset | Broker username |
+| `OHMYCLAWD_MQTT_PASSWORD_FILE` | `$STATE_DIRECTORY/mqtt_password` | Mode 0600; write it with `ohmyclawd-daemon mqtt-password` |
+| `OHMYCLAWD_MQTT_PREFIX` | `ohmyclawd` | Topic root |
+| `OHMYCLAWD_MQTT_NODE` | sanitized hostname | Second topic level and part of HA unique ids (`[a-z0-9_]`) |
+| `OHMYCLAWD_HA_DISCOVERY` | `homeassistant` | HA discovery prefix. Set it empty to disable discovery |
+| `OHMYCLAWD_NOTIFY_AFTER` | `30s` | How long a pane must stay `blocked`/`done` before an `event` is published |
+
+```bash
+echo 'the-password' | sudo -u youruser ohmyclawd-daemon mqtt-password
+```
+
+Topics, under `<prefix>/<node>/`:
+
+| Topic | Retained | Payload |
+|-------|----------|---------|
+| `status` | yes | `online`, or `offline` (clean shutdown, and the broker's will if the daemon vanishes) |
+| `agents` | yes | Same JSON as `/agents`. Published on every change, and once a minute while something is blocked or done |
+| `usage` | yes | Same JSON as `/usage`, plus `sra`/`wra`: reset times as RFC 3339 |
+| `event` | no | `{"event_type":"blocked","id":"w1:p2","dir":"vets-api","agent":"claude","for":34}`, once per pane per status entry |
+
+Discovery creates one device, `ohmyclawd <node>`, with sensors `waiting`, `done`, `working`, `agents` (attributes: the agent list), `session`, `week`, `session_reset`, `week_reset`, `usage_source`, a binary sensor `attention`, and an event entity `agent`.
+
+MQTT has no "a client is looking" signal, so idle gating is off while MQTT is enabled.
+
+Metrics: `ohmyclawd_mqtt_connected`, `ohmyclawd_mqtt_publish_total{topic}`, `ohmyclawd_mqtt_reconnect_total`, and (always) `ohmyclawd_agents{status}`.
+
 ### Access modes
 
 | Scenario | LISTEN | Token file |

@@ -28,6 +28,14 @@ func main() {
 		}
 		return
 	}
+	mqttPasswordFile := getenv("OHMYCLAWD_MQTT_PASSWORD_FILE", defaultStateFile("mqtt_password"))
+	if len(os.Args) > 1 && os.Args[1] == "mqtt-password" {
+		if err := runMQTTPasswordCmd(mqttPasswordFile, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "mqtt-password: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	listen := getenv("OHMYCLAWD_LISTEN", "127.0.0.1:8787")
 	token, err := resolveToken(os.Getenv("OHMYCLAWD_TOKEN"), tokenFile, log.Printf)
@@ -72,6 +80,23 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	var mqttDone chan struct{}
+	if mqttURL := os.Getenv("OHMYCLAWD_MQTT_URL"); mqttURL != "" {
+		mqttDone = make(chan struct{})
+		pub, client, err := buildMQTT(mqttURL, mqttPasswordFile, state, sw, maxAgents)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		client.Metrics = metrics
+		metrics.mqttEnabled.Store(true)
+		go func() { client.Run(ctx); close(mqttDone) }()
+		go pub.Run(ctx)
+		if idleAfter > 0 {
+			log.Printf("mqtt enabled: idle gating off (OHMYCLAWD_IDLE_AFTER ignored)")
+			idleAfter = 0
+		}
+	}
+
 	go sw.Run(ctx)
 	go logKindChanges(ctx, sw, 5*time.Second)
 
@@ -109,6 +134,42 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	_ = srv.Shutdown(shutdownCtx)
+	if mqttDone != nil {
+		select { // let the client publish "offline" and disconnect
+		case <-mqttDone:
+		case <-shutdownCtx.Done():
+		}
+	}
+}
+
+// buildMQTT configures the MQTT client and publisher from OHMYCLAWD_MQTT_*.
+func buildMQTT(rawURL, passwordFile string, state *State, sw SessionWatcher, maxAgents int) (*Publisher, *MQTTClient, error) {
+	u, err := parseMQTTURL(rawURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	password, err := readSecretFile(passwordFile, "mqtt password file", log.Printf)
+	if err != nil {
+		return nil, nil, err
+	}
+	user := os.Getenv("OHMYCLAWD_MQTT_USER")
+	if user != "" && password == "" {
+		log.Printf("warning: OHMYCLAWD_MQTT_USER set but %s is missing or empty; run `ohmyclawd-daemon mqtt-password`", passwordFile)
+	}
+	prefix := getenv("OHMYCLAWD_MQTT_PREFIX", "ohmyclawd")
+	node := sanitizeNode(getenv("OHMYCLAWD_MQTT_NODE", defaultNode()))
+	discovery := "homeassistant"
+	if v, ok := os.LookupEnv("OHMYCLAWD_HA_DISCOVERY"); ok {
+		discovery = v // empty disables discovery
+	}
+	client := NewMQTTClient(u, user, password, "ohmyclawd-"+node, prefix+"/"+node+"/status")
+	pub := &Publisher{
+		Client: client, Prefix: prefix, Node: node, Discovery: discovery,
+		SW: sw, State: state, MaxAgents: maxAgents,
+		NotifyAfter: getenvDur("OHMYCLAWD_NOTIFY_AFTER", 30*time.Second),
+	}
+	log.Printf("mqtt: publishing to %s as %s/%s/ (discovery %q)", u.Host, prefix, node, discovery)
+	return pub, client, nil
 }
 
 // buildChain assembles the ordered usage sources. Missing credentials are

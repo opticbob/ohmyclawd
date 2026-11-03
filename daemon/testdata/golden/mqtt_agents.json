@@ -1,0 +1,1 @@
+{"ts":1793700000,"sw":"herdr","n":{"blocked":1,"done":1,"idle":0,"unknown":0,"working":1},"a":[{"id":"w1:p2","d":"vets-api","g":"claude","s":"blocked","t":1793700000},{"id":"w2:p1","d":"dewey","g":"claude","s":"done","t":1793700000},{"id":"w3:p1","d":"homelab","g":"kiro","s":"working","t":1793700000}],"more":0}

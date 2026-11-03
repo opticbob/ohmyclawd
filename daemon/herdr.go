@@ -477,6 +477,10 @@ func (h *HerdrWatcher) stream(ctx context.Context) error {
 
 	tick := time.NewTicker(h.Reconcile)
 	defer tick.Stop()
+	// An open event connection means herdr is up, so keep Healthy() true
+	// between reconciles; EOF or a failed reconcile ends that.
+	alive := time.NewTicker(h.Interval)
+	defer alive.Stop()
 	resync := func() error {
 		now, err := h.list(ctx)
 		if err != nil {
@@ -497,6 +501,8 @@ func (h *HerdrWatcher) stream(ctx context.Context) error {
 			}
 			_ = h.poll(ctx) // resync right away; Run resubscribes with backoff
 			return fmt.Errorf("herdr events: %w", err)
+		case <-alive.C:
+			h.markOK()
 		case <-tick.C:
 			if err := resync(); err != nil {
 				return err
