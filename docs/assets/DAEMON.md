@@ -113,7 +113,7 @@ Topics, under `<prefix>/<node>/`:
 | `status` | yes | `online`, or `offline` (clean shutdown, and the broker's will if the daemon vanishes) |
 | `agents` | yes | Same JSON as `/agents`. Published on every change, and once a minute while something is blocked or done |
 | `usage` | yes | Same JSON as `/usage`, plus `sra`/`wra`: reset times as RFC 3339 |
-| `event` | no | `{"event_type":"blocked","id":"w1:p2","dir":"vets-api","agent":"claude","for":34}`, once per pane per status entry |
+| `event` | no | `{"event_type":"blocked","id":"w1:p2","dir":"vets-api","agent":"claude","since":1793700000,"for":34}`, once per pane per status entry, after `NOTIFY_AFTER`. `since` is when the pane entered the status. A `cleared` event (same fields) follows when an announced pane leaves that status or closes, so HA can dismiss its notification |
 
 Discovery creates one device, `ohmyclawd <node>`, with sensors `waiting`, `done`, `working`, `agents` (attributes: the agent list), `session`, `week`, `session_reset`, `week_reset`, `usage_source`, a binary sensor `attention`, and an event entity `agent`.
 

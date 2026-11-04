@@ -26,7 +26,8 @@ type Publisher struct {
 	NotifyAfter time.Duration
 	Now         func() time.Time // injectable for tests; nil -> time.Now
 
-	fired map[string]bool // pane|status|since already announced on the event topic
+	fired     map[string]bool  // pane|status|since already announced on the event topic
+	announced map[string]Agent // pane -> the state its last blocked/done event was for
 }
 
 func (p *Publisher) now() time.Time {
@@ -85,17 +86,43 @@ type agentEvent struct {
 	ID    string `json:"id"`
 	Dir   string `json:"dir"`
 	Agent string `json:"agent"`
+	Since int64  `json:"since"` // unix seconds the pane entered the announced status
 	For   int64  `json:"for"`
+}
+
+func (p *Publisher) eventMessage(typ string, a Agent, now time.Time) MQTTMessage {
+	b, _ := json.Marshal(agentEvent{Type: typ, ID: a.ID, Dir: a.Dir, Agent: a.Agent, Since: a.Since, For: now.Unix() - a.Since})
+	return MQTTMessage{Topic: p.topic("event"), Payload: b, Label: "event"}
 }
 
 // dueEvents returns an event for each agent that has stayed blocked or done
 // for NotifyAfter, once per pane per status entry. A pane that leaves and
 // re-enters the status gets a new Since and so fires again.
-func (p *Publisher) dueEvents(agents []Agent, now time.Time) []MQTTMessage {
+//
+// Once a pane has been announced, a "cleared" event follows as soon as it
+// leaves that state (answered, looked at, or closed), so HA can dismiss the
+// notification. ok=false means herdr isn't reporting right now: nothing is
+// fired, cleared or forgotten until it is back.
+func (p *Publisher) dueEvents(agents []Agent, ok bool, now time.Time) []MQTTMessage {
+	if !ok {
+		return nil
+	}
 	if p.fired == nil {
 		p.fired = make(map[string]bool)
+		p.announced = make(map[string]Agent)
 	}
 	var out []MQTTMessage
+	byID := make(map[string]Agent, len(agents))
+	for _, a := range agents {
+		byID[a.ID] = a
+	}
+	// Clears go first so they can't dismiss a notification fired this tick.
+	for id, ann := range p.announced {
+		if cur, ok := byID[id]; !ok || cur.Status != ann.Status || cur.Since != ann.Since {
+			delete(p.announced, id)
+			out = append(out, p.eventMessage("cleared", ann, now))
+		}
+	}
 	live := make(map[string]bool)
 	for _, a := range agents {
 		if a.Status != "blocked" && a.Status != "done" {
@@ -108,8 +135,8 @@ func (p *Publisher) dueEvents(agents []Agent, now time.Time) []MQTTMessage {
 			continue
 		}
 		p.fired[key] = true
-		b, _ := json.Marshal(agentEvent{Type: a.Status, ID: a.ID, Dir: a.Dir, Agent: a.Agent, For: held})
-		out = append(out, MQTTMessage{Topic: p.topic("event"), Payload: b, Label: "event"})
+		p.announced[a.ID] = a
+		out = append(out, p.eventMessage(a.Status, a, now))
 	}
 	for k := range p.fired {
 		if !live[k] {
@@ -120,11 +147,16 @@ func (p *Publisher) dueEvents(agents []Agent, now time.Time) []MQTTMessage {
 }
 
 // allAgents is the uncapped list, so events fire for agents past MaxAgents too.
-func (p *Publisher) allAgents() []Agent {
-	if src, ok := p.SW.(AgentSource); ok && p.SW.Kind() == "herdr" {
-		return src.Agents()
+// ok is false while herdr isn't the active watcher.
+func (p *Publisher) allAgents() ([]Agent, bool) {
+	src, ok := p.SW.(AgentSource)
+	if !ok || p.SW.Kind() != "herdr" {
+		return nil, false
 	}
-	return nil
+	agents := src.Agents()
+	// Re-check: if herdr went unhealthy in between, agents is nil, and that
+	// must not read as "every pane closed".
+	return agents, p.SW.Kind() == "herdr"
 }
 
 // Run publishes discovery and initial state, then follows changes until ctx
@@ -176,7 +208,8 @@ func (p *Publisher) Run(ctx context.Context) {
 				pubAgents()
 			}
 		}
-		for _, m := range p.dueEvents(p.allAgents(), p.now()) {
+		agents, ok := p.allAgents()
+		for _, m := range p.dueEvents(agents, ok, p.now()) {
 			p.Client.Publish(m)
 		}
 	}
@@ -216,7 +249,7 @@ func (p *Publisher) discoveryMessages() []MQTTMessage {
 		{"sensor", "session_reset", map[string]any{"name": "Session reset", "state_topic": usage, "value_template": "{{ value_json.sra }}", "device_class": "timestamp"}},
 		{"sensor", "week_reset", map[string]any{"name": "Week reset", "state_topic": usage, "value_template": "{{ value_json.wra }}", "device_class": "timestamp"}},
 		{"sensor", "usage_source", map[string]any{"name": "Usage source", "state_topic": usage, "value_template": "{{ value_json.src }}", "entity_category": "diagnostic", "icon": "mdi:source-branch"}},
-		{"event", "agent", map[string]any{"name": "Agent", "state_topic": p.topic("event"), "event_types": []string{"blocked", "done"}, "icon": "mdi:robot-confused-outline"}},
+		{"event", "agent", map[string]any{"name": "Agent", "state_topic": p.topic("event"), "event_types": []string{"blocked", "done", "cleared"}, "icon": "mdi:robot-confused-outline"}},
 	}
 	out := make([]MQTTMessage, 0, len(ents))
 	for _, e := range ents {

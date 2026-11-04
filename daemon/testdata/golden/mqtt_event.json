@@ -1,2 +1,2 @@
-{"event_type":"blocked","id":"w1:p2","dir":"vets-api","agent":"claude","for":31}
-{"event_type":"done","id":"w2:p1","dir":"dewey","agent":"claude","for":31}
+{"event_type":"blocked","id":"w1:p2","dir":"vets-api","agent":"claude","since":1793700000,"for":31}
+{"event_type":"done","id":"w2:p1","dir":"dewey","agent":"claude","since":1793700000,"for":31}

@@ -210,7 +210,8 @@ homeassistant/event/ohmyclawd_joshpc/agent/config
   },
   "event_types": [
     "blocked",
-    "done"
+    "done",
+    "cleared"
   ],
   "icon": "mdi:robot-confused-outline",
   "name": "Agent",

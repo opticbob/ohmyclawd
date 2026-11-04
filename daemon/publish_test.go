@@ -98,7 +98,8 @@ func TestPublishPayloadsGolden(t *testing.T) {
 	golden(t, "mqtt_usage.json", um.Payload)
 
 	now = now.Add(31 * time.Second)
-	ev := p.dueEvents(p.allAgents(), now)
+	agents, ok := p.allAgents()
+	ev := p.dueEvents(agents, ok, now)
 	if len(ev) != 2 || ev[0].Retain || ev[0].Topic != "ohmyclawd/joshpc/event" {
 		t.Fatalf("events = %+v", ev)
 	}
@@ -158,18 +159,21 @@ func TestAgentsPayloadSize(t *testing.T) {
 	}
 }
 
+// dueOf runs dueEvents against h and returns "id:type" for each event.
+func dueOf(p *Publisher, h *HerdrWatcher, ok bool, now time.Time) []string {
+	var out []string
+	for _, m := range p.dueEvents(h.Agents(), ok, now) {
+		var e agentEvent
+		_ = json.Unmarshal(m.Payload, &e)
+		out = append(out, e.ID+":"+e.Type)
+	}
+	return out
+}
+
 func TestNotifyAfter(t *testing.T) {
 	now := time.Unix(1000, 0)
 	p, h := testPublisher(&now)
-	due := func() []string {
-		var out []string
-		for _, m := range p.dueEvents(h.Agents(), now) {
-			var e agentEvent
-			_ = json.Unmarshal(m.Payload, &e)
-			out = append(out, e.ID+":"+e.Type)
-		}
-		return out
-	}
+	due := func() []string { return dueOf(p, h, true, now) }
 
 	now = now.Add(29 * time.Second)
 	if got := due(); len(got) != 0 {
@@ -192,9 +196,58 @@ func TestNotifyAfter(t *testing.T) {
 	}
 	h.applyStatus("w2:p1", "", "idle")
 	h.applyStatus("w2:p1", "", "done")
+	if got := due(); len(got) != 1 || got[0] != "w2:p1:cleared" {
+		t.Fatalf("done re-entered, first tick: %v, want the old done cleared", got)
+	}
 	now = now.Add(30 * time.Second)
 	if got := due(); len(got) != 1 || got[0] != "w2:p1:done" {
 		t.Fatalf("done re-entered: %v", got)
+	}
+}
+
+func TestEventCleared(t *testing.T) {
+	now := time.Unix(1000, 0)
+	p, h := testPublisher(&now)
+	now = now.Add(31 * time.Second)
+	dueOf(p, h, true, now) // announces w1:p2 blocked and w2:p1 done
+
+	now = now.Add(5 * time.Second)
+	h.applyStatus("w1:p2", "", "working")
+	ev := p.dueEvents(h.Agents(), true, now)
+	if len(ev) != 1 {
+		t.Fatalf("got %d events, want 1 cleared", len(ev))
+	}
+	var e agentEvent
+	_ = json.Unmarshal(ev[0].Payload, &e)
+	if e.Type != "cleared" || e.ID != "w1:p2" || e.Since != 1000 || e.For != 36 || e.Dir != "vets-api" {
+		t.Fatalf("cleared = %+v", e)
+	}
+	if got := dueOf(p, h, true, now); len(got) != 0 {
+		t.Fatalf("cleared twice: %v", got)
+	}
+
+	// A closed pane clears too; a pane never announced does not.
+	h.applyList([]herdrPane{{PaneID: "w3:p1", Agent: "kiro", AgentStatus: "idle", Cwd: "/h/homelab"}})
+	if got := dueOf(p, h, true, now); len(got) != 1 || got[0] != "w2:p1:cleared" {
+		t.Fatalf("closed pane: %v", got)
+	}
+}
+
+func TestEventsHoldDuringHerdrGap(t *testing.T) {
+	now := time.Unix(1000, 0)
+	p, h := testPublisher(&now)
+	now = now.Add(31 * time.Second)
+	if got := dueOf(p, h, true, now); len(got) != 2 {
+		t.Fatalf("initial: %v", got)
+	}
+	// herdr drops out: nothing fires, nothing clears, nothing is forgotten.
+	now = now.Add(time.Minute)
+	if got := dueOf(p, h, false, now); len(got) != 0 {
+		t.Fatalf("during gap: %v", got)
+	}
+	// Back with the same panes still waiting: no repeat alerts.
+	if got := dueOf(p, h, true, now); len(got) != 0 {
+		t.Fatalf("after gap: %v, want no repeats", got)
 	}
 }
 
