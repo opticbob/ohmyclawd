@@ -10,7 +10,7 @@ import (
 // Activity records when a client last requested /usage so the loop can stop
 // fetching while nobody is looking.
 type Activity struct {
-	last atomic.Int64 // unix nanos
+	last atomic.Pointer[time.Time] // monotonic, so idle gating ignores wall-clock steps
 	wake chan struct{}
 }
 
@@ -18,19 +18,19 @@ type Activity struct {
 // once at boot before any client connects.
 func NewActivity(start time.Time) *Activity {
 	a := &Activity{wake: make(chan struct{}, 1)}
-	a.last.Store(start.UnixNano())
+	a.last.Store(&start)
 	return a
 }
 
 func (a *Activity) Touch(now time.Time) {
-	a.last.Store(now.UnixNano())
+	a.last.Store(&now)
 	select {
 	case a.wake <- struct{}{}:
 	default:
 	}
 }
 
-func (a *Activity) LastSeen() time.Time { return time.Unix(0, a.last.Load()) }
+func (a *Activity) LastSeen() time.Time { return *a.last.Load() }
 
 type LoopConfig struct {
 	RateLimited time.Duration

@@ -34,7 +34,7 @@ type HerdrWatcher struct {
 
 	sessions atomic.Int32
 	waiting  atomic.Int32
-	lastOK   atomic.Int64 // unix nanos of last successful contact
+	lastOK   atomic.Pointer[time.Time] // last successful contact; keeps the monotonic reading so wall-clock steps don't age it
 	seq      atomic.Uint64
 
 	mu      sync.Mutex
@@ -84,11 +84,14 @@ func (h *HerdrWatcher) now() time.Time {
 	return time.Now()
 }
 
-func (h *HerdrWatcher) markOK() { h.lastOK.Store(h.now().UnixNano()) }
+func (h *HerdrWatcher) markOK() {
+	now := h.now()
+	h.lastOK.Store(&now)
+}
 
 func (h *HerdrWatcher) Healthy() bool {
 	last := h.lastOK.Load()
-	return last != 0 && h.now().Sub(time.Unix(0, last)) < h.HealthyFor
+	return last != nil && h.now().Sub(*last) < h.HealthyFor
 }
 
 // Sessions and Waiting report 0 once the socket stops answering, rather than

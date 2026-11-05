@@ -18,7 +18,7 @@ type TmuxWatcher struct {
 
 	sessions atomic.Int32
 	waiting  atomic.Int32
-	lastOK   atomic.Int64 // unix nanos of last successful list-panes
+	lastOK   atomic.Pointer[time.Time] // last successful list-panes (monotonic)
 }
 
 func NewTmuxWatcher() *TmuxWatcher {
@@ -34,7 +34,7 @@ func (tw *TmuxWatcher) Waiting() int  { return int(tw.waiting.Load()) }
 // Healthy reports whether tmux answered list-panes within the last three intervals.
 func (tw *TmuxWatcher) Healthy() bool {
 	last := tw.lastOK.Load()
-	return last != 0 && time.Since(time.Unix(0, last)) < 3*tw.Interval
+	return last != nil && time.Since(*last) < 3*tw.Interval
 }
 
 func (tw *TmuxWatcher) Kind() string {
@@ -63,7 +63,7 @@ func (tw *TmuxWatcher) Run(ctx context.Context) {
 
 		now := time.Now()
 		if err == nil {
-			tw.lastOK.Store(now.UnixNano())
+			tw.lastOK.Store(&now)
 		}
 		waiting := 0
 
