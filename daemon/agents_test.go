@@ -131,6 +131,35 @@ func TestChangedFiresOncePerRealChange(t *testing.T) {
 	}
 }
 
+func TestCtxFromPaneTokens(t *testing.T) {
+	now := time.Unix(1000, 0)
+	h := newTestWatcher(&now)
+	list := func(ctx string) {
+		h.applyList([]herdrPane{{PaneID: "p1", Agent: "claude", AgentStatus: "working", Cwd: "/h/a", Tokens: map[string]string{"ctx": ctx}}})
+	}
+	for _, tc := range []struct {
+		token string
+		want  int
+	}{{"62", 62}, {"100", 100}, {"0", 0}, {"101", 0}, {"-3", 0}, {"6.5", 0}, {"", 0}} {
+		list(tc.token)
+		if got := h.Agents()[0].Ctx; got != tc.want {
+			t.Errorf("ctx token %q -> %d, want %d", tc.token, got, tc.want)
+		}
+	}
+
+	list("40")
+	drain(h.Changed())
+	h.applyStatus("p1", "", "blocked") // status events must keep ctx
+	if a := h.Agents()[0]; a.Ctx != 40 {
+		t.Fatalf("ctx lost on status event: %+v", a)
+	}
+	drain(h.Changed())
+	h.applyList([]herdrPane{{PaneID: "p1", Agent: "claude", AgentStatus: "blocked", Cwd: "/h/a", Tokens: map[string]string{"ctx": "41"}}})
+	if n := drain(h.Changed()); n != 1 {
+		t.Fatalf("ctx change fired %d times", n)
+	}
+}
+
 func TestAgentsIncludeEveryDetectedAgent(t *testing.T) {
 	now := time.Unix(1000, 0)
 	h := newTestWatcher(&now)
@@ -334,6 +363,21 @@ func TestHerdrReconcileFixesMissedEvent(t *testing.T) {
 
 	srv.setPanes(herdrPane{PaneID: "p1", Agent: "claude", AgentStatus: "blocked"}) // no event sent
 	waitFor(t, "reconciled to blocked", func() bool { return statusOf(h, "p1") == "blocked" })
+	if srv.subs.Load() != 1 {
+		t.Fatalf("same pane set should keep the subscription, got %d subscribes", srv.subs.Load())
+	}
+}
+
+func TestHerdrPaneUpdatedResyncsCtx(t *testing.T) {
+	path := shortSockPath(t)
+	srv := startEventHerdr(t, path, herdrPane{PaneID: "p1", Agent: "claude", AgentStatus: "working"})
+	h := fastWatcher(path)
+	runWatcher(t, h)
+	waitFor(t, "subscribe", func() bool { return srv.subs.Load() == 1 })
+
+	srv.setPanes(herdrPane{PaneID: "p1", Agent: "claude", AgentStatus: "working", Tokens: map[string]string{"ctx": "57"}})
+	srv.events <- `{"event":"pane_updated","data":{"pane":{"pane_id":"p1","tokens":{"ctx":"57"}}}}`
+	waitFor(t, "ctx", func() bool { a := h.Agents(); return len(a) == 1 && a[0].Ctx == 57 })
 	if srv.subs.Load() != 1 {
 		t.Fatalf("same pane set should keep the subscription, got %d subscribes", srv.subs.Load())
 	}

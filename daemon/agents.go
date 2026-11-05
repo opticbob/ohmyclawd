@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -11,11 +12,12 @@ import (
 // Agent is one herdr pane with a detected agent, as published on /agents and
 // the MQTT agents topic. Keys are short to keep the payload small for ESPHome.
 type Agent struct {
-	ID     string `json:"id"` // herdr pane_id
-	Dir    string `json:"d"`  // display dir: basename, or parent/base on collisions
-	Agent  string `json:"g"`  // claude, kiro, codex, ...
-	Status string `json:"s"`  // blocked|done|working|idle|unknown
-	Since  int64  `json:"t"`  // unix secs this pane entered Status (daemon-observed; approximate after a restart)
+	ID     string `json:"id"`          // herdr pane_id
+	Dir    string `json:"d"`           // display dir: basename, or parent/base on collisions
+	Agent  string `json:"g"`           // claude, kiro, codex, ...
+	Status string `json:"s"`           // blocked|done|working|idle|unknown
+	Since  int64  `json:"t"`           // unix secs this pane entered Status (daemon-observed; approximate after a restart)
+	Ctx    int    `json:"c,omitempty"` // context window used, 1-100 %; 0 = not reported (only Claude reports it)
 
 	path string // full cwd, used to resolve display-dir collisions
 }
@@ -76,7 +78,7 @@ func setDisplayDirs(as []Agent, home string) {
 func agentsHash(as []Agent) [32]byte {
 	var b strings.Builder
 	for _, a := range as {
-		b.WriteString(a.ID + "\x00" + a.Dir + "\x00" + a.Agent + "\x00" + a.Status + "\n")
+		b.WriteString(a.ID + "\x00" + a.Dir + "\x00" + a.Agent + "\x00" + a.Status + "\x00" + strconv.Itoa(a.Ctx) + "\n")
 	}
 	return sha256.Sum256([]byte(b.String()))
 }

@@ -72,7 +72,7 @@ func (c *capturePub) last(topic string) string {
 func testPublisher(now *time.Time) (*Publisher, *HerdrWatcher) {
 	h := newTestWatcher(now)
 	h.applyList([]herdrPane{
-		{PaneID: "w1:p2", Agent: "claude", AgentStatus: "blocked", Cwd: "/h/x/vets-api"},
+		{PaneID: "w1:p2", Agent: "claude", AgentStatus: "blocked", Cwd: "/h/x/vets-api", Tokens: map[string]string{"ctx": "62"}},
 		{PaneID: "w2:p1", Agent: "claude", AgentStatus: "done", Cwd: "/h/dewey"},
 		{PaneID: "w3:p1", Agent: "kiro", AgentStatus: "working", Cwd: "/h/homelab"},
 	})

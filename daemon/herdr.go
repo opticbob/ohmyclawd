@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,6 +47,7 @@ type HerdrWatcher struct {
 type paneState struct {
 	agent, status, path string
 	since               int64
+	ctx                 int
 }
 
 func NewHerdrWatcher(sock string, match, waiting []string) *HerdrWatcher {
@@ -136,6 +138,20 @@ type herdrPane struct {
 	AgentSession  *struct {
 		Agent string `json:"agent"`
 	} `json:"agent_session,omitempty"`
+	Tokens map[string]string `json:"tokens,omitempty"` // pane metadata set by other tools
+}
+
+// ctxToken is the pane token holding context-window use, set from Claude
+// Code's status line by statusline-ctx.sh.
+const ctxToken = "ctx"
+
+// ctx is the pane's context-window use in percent, or 0 if unset or invalid.
+func (p herdrPane) ctx() int {
+	n, err := strconv.Atoi(p.Tokens[ctxToken])
+	if err != nil || n < 1 || n > 100 {
+		return 0
+	}
+	return n
 }
 
 func (p herdrPane) agentName() string {
@@ -231,7 +247,7 @@ func (h *HerdrWatcher) applyList(panes []herdrPane) {
 		if name == "" {
 			continue
 		}
-		st := &paneState{agent: name, status: p.AgentStatus, path: p.dir(), since: now}
+		st := &paneState{agent: name, status: p.AgentStatus, path: p.dir(), since: now, ctx: p.ctx()}
 		if old, ok := h.panes[p.PaneID]; ok && old.status == st.status {
 			st.since = old.since
 		}
@@ -282,7 +298,7 @@ func (h *HerdrWatcher) recountLocked() {
 func (h *HerdrWatcher) rebuildLocked() {
 	as := make([]Agent, 0, len(h.panes))
 	for id, p := range h.panes {
-		as = append(as, Agent{ID: id, Agent: p.agent, Status: p.status, Since: p.since, path: p.path})
+		as = append(as, Agent{ID: id, Agent: p.agent, Status: p.status, Since: p.since, Ctx: p.ctx, path: p.path})
 	}
 	setDisplayDirs(as, h.Home)
 	sortAgents(as)
@@ -331,8 +347,10 @@ var (
 
 // lifecycleEvents are subscribed by type. pane.agent_status_changed needs a
 // pane_id (herdr 0.9 schema), so it is subscribed per pane and the
-// subscription is renewed whenever panes come or go.
-var lifecycleEvents = []string{"pane.created", "pane.closed", "pane.exited", "pane.moved", "pane.agent_detected"}
+// subscription is renewed whenever panes come or go. pane.updated fires on
+// metadata changes such as the ctx token (not on status or title changes)
+// and triggers a resync.
+var lifecycleEvents = []string{"pane.created", "pane.closed", "pane.exited", "pane.moved", "pane.agent_detected", "pane.updated"}
 
 func (h *HerdrWatcher) Run(ctx context.Context) {
 	backoff := time.Second

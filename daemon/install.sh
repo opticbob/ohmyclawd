@@ -69,6 +69,8 @@ if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
 fi
 
 install -m 0755 "${BUILD_DIR}/ohmyclawd-daemon" /usr/local/bin/ohmyclawd-daemon
+# Claude Code status line that reports context use to herdr (see the script).
+install -m 0755 statusline-ctx.sh /usr/local/bin/ohmyclawd-statusline
 
 # Preserve existing env vars on upgrade
 declare -A KEEP=()

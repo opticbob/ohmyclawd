@@ -181,7 +181,7 @@ Every herdr pane with a detected agent (any agent, not just `OHMYCLAWD_AGENT_MAT
 
 ```json
 {"ts":1793731245,"sw":"herdr","n":{"blocked":1,"done":0,"idle":3,"unknown":0,"working":1},
- "a":[{"id":"wG:p1","d":"verbulla","g":"claude","s":"blocked","t":1793731240}],"more":0}
+ "a":[{"id":"wG:p1","d":"verbulla","g":"claude","s":"blocked","t":1793731240,"c":62}],"more":0}
 ```
 
 | Key | What |
@@ -191,7 +191,18 @@ Every herdr pane with a detected agent (any agent, not just `OHMYCLAWD_AGENT_MAT
 | `a[].d` | Directory basename (`parent/base` when two paths share a basename, `~` for home) |
 | `a[].g` / `a[].s` | Agent name / status |
 | `a[].t` | Unix time the pane entered its status, as observed by the daemon (approximate after a restart) |
+| `a[].c` | Context window used, 1–100 %. Omitted when the pane doesn't report it (see below) |
 | `more` | Agents left out by `OHMYCLAWD_MAX_AGENTS` |
+
+#### Context use (`c`)
+
+herdr doesn't know an agent's context size, so the daemon reads it from the pane token `ctx`, which `ohmyclawd-statusline` (installed by `install.sh` from `daemon/statusline-ctx.sh`) sets from Claude Code's status line input (`context_window.used_percentage`). Turn it on in `~/.claude/settings.json`:
+
+```json
+"statusLine": {"type": "command", "command": "ohmyclawd-statusline"}
+```
+
+It prints `ctx 62%` as the status line and calls `herdr pane report-metadata` only when the number changes; herdr then sends `pane.updated`, so the value arrives within about a second. Needs `jq`. Only Claude Code reports it: other agents have no `c`, and a Claude pane has none until its first reply. An idle pane keeps its last value, which is still right because context doesn't change while idle.
 
 herdr is followed through its event stream, so a status change shows up within about a second. Status events need a per-pane subscription in herdr 0.9, so the daemon resubscribes whenever panes come or go, and resyncs with `pane.list` every `OHMYCLAWD_HERDR_RECONCILE`. An herdr without `events.subscribe` is polled every 5 s instead.
 
